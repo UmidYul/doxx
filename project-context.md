@@ -6,8 +6,11 @@
 Это НЕ просто каталог.
 Это data platform:
 - агрегатор цен
+
+OUT OF MVP:
 - marketplace
-- будущий CRM
+- CRM
+- seller system
 
 ---
 

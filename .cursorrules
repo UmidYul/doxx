@@ -93,3 +93,11 @@ scraper → queue → processor → normalize → DB → search index
   3. Следовать архитектуре
 
 - Никогда не ломать архитектуру ради быстроты
+
+AI WORKFLOW:
+
+1. Build step-by-step
+2. Never generate large systems
+3. Always follow MVP scope
+4. After each task — validate logic
+5. Prefer simple solutions over scalable ones
