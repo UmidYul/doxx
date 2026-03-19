@@ -1,0 +1,14 @@
+{"timestamp":"00:00:02.395","source":"Server","level":"LOG","message":""}
+{"timestamp":"00:00:05.614","source":"Browser","level":"INFO","message":"%cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold"}
+{"timestamp":"00:01:21.140","source":"Server","level":"ERROR","message":"(node:11664) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.\n(Use `node --trace-deprecation ...` to show where the warning was created)"}
+{"timestamp":"00:01:50.326","source":"Server","level":"LOG","message":"[api][info] 2026-03-19T14:33:18.974Z API scrape requested {}"}
+{"timestamp":"00:01:50.343","source":"Server","level":"LOG","message":"[api][info] 2026-03-19T14:33:19.026Z Scrape job queued {}"}
+{"timestamp":"00:21:03.769","source":"Server","level":"LOG","message":"[api][info] 2026-03-19T14:52:32.452Z API scrape requested {}"}
+{"timestamp":"00:21:03.773","source":"Server","level":"LOG","message":"[api][info] 2026-03-19T14:52:32.457Z Scrape job queued {}"}
+{"timestamp":"00:21:52.384","source":"Server","level":"ERROR","message":"⨯ Error: DATABASE_URL is required"}
+{"timestamp":"00:22:10.292","source":"Server","level":"ERROR","message":"⨯ Error: DATABASE_URL is required"}
+{"timestamp":"00:23:25.396","source":"Server","level":"LOG","message":"[dotenv@17.3.1] injecting env (2) from ..\\..\\.env -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }"}
+{"timestamp":"00:52:28.213","source":"Server","level":"LOG","message":"[api][info] 2026-03-19T15:23:56.892Z API scrape requested {}"}
+{"timestamp":"00:52:28.271","source":"Server","level":"LOG","message":"[api][info] 2026-03-19T15:23:56.955Z Scrape job queued {}"}
+{"timestamp":"00:54:42.422","source":"Server","level":"LOG","message":"[api][info] 2026-03-19T15:26:11.103Z API scrape requested {}"}
+{"timestamp":"00:54:42.427","source":"Server","level":"LOG","message":"[api][info] 2026-03-19T15:26:11.108Z Scrape job queued {}"}

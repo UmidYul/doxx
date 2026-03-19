@@ -1,0 +1,11 @@
+{
+  "name": "apps-api",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "lint": "echo \"skip lint\""
+  }
+}
