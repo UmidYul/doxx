@@ -1,5 +1,10 @@
 # === PROJECT: E-COMMERCE CATALOG (UZ) ===
 
+## MVP MODE (SCOPE LOCK)
+- MVP = catalog aggregator (products/offers/search/clickout)
+- OUT OF MVP: marketplace, CRM, seller portal, payments
+- If conflict exists: follow ai-context.md + mvp-context.md over other docs
+
 ## GENERAL RULES
 - Always follow monorepo architecture
 - Do not create хаотичные файлы вне структуры
@@ -7,9 +12,9 @@
 - Prefer clear, typed, maintainable code over быстрые хаки
 
 ## ARCHITECTURE
-- apps: web, api, seller
+- apps: web, api
 - services: scraper (standalone)
-- packages: shared, db, ui
+- packages: shared, db
 
 - API layer НЕ должен знать про scraping
 - Scraper НЕ должен содержать бизнес-логику API
@@ -35,17 +40,15 @@
 - Использовать Cheerio для статики
 
 Pipeline:
-scraper → queue → processor → normalize → DB → search index
+scraper → queue → processor → normalize → DB
 
 ## SEARCH
-- Elasticsearch используется только для поиска
-- PostgreSQL — основной источник данных
-- Никогда не писать бизнес-логику в elastic
+- MVP: PostgreSQL full-text search (source of truth = Postgres)
+- P2: Elasticsearch/OpenSearch только при необходимости
+- Никогда не писать бизнес-логику в search-индекс
 
 ## MULTI-TENANT
-- Каждый seller имеет изолированные данные
-- Всегда учитывать seller_id в запросах
-- Нельзя возвращать чужие данные
+- НЕ ВХОДИТ В MVP (включать только вместе с seller portal)
 
 ## API DESIGN
 - REST first
@@ -53,21 +56,19 @@ scraper → queue → processor → normalize → DB → search index
   /products
   /offers
   /search
-  /seller
 
 - Всегда pagination
 - Всегда фильтры
 
 ## TELEGRAM
-- Telegram = основной канал уведомлений
-- Все события должны иметь возможность отправки в Telegram
+- НЕ ВХОДИТ В MVP (разрешены только price alerts, если решено; сейчас не указано)
 
 ## ASYNC TASKS
 - Все тяжелые операции через очередь (BullMQ)
 - Никаких тяжелых операций в HTTP request
 
 ## NAMING
-- Использовать понятные имена (product, offer, seller)
+- Использовать понятные имена (product, offer, store)
 - Не использовать аббревиатуры
 
 ## CODE STYLE
@@ -95,7 +96,6 @@ scraper → queue → processor → normalize → DB → search index
 - Никогда не ломать архитектуру ради быстроты
 
 AI WORKFLOW:
-
 1. Build step-by-step
 2. Never generate large systems
 3. Always follow MVP scope

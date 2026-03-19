@@ -13,9 +13,15 @@
 
 ## GOOD PROMPTS
 
-- "Создай Prisma модель Product и Offer согласно project-context.md"
+- "Создай Prisma модель Product и Offer согласно mvp-context.md (и правилам .cursorrules)"
 - "Сделай API endpoint GET /products с pagination"
 - "Реализуй scraping worker для uzum (Playwright)"
+
+---
+
+## MINI-ITERATIONS (MI-01..MI-12)
+Используй шаблон:
+"AGENT: BUILDER → сделай одну маленькую задачу → покажи изменения → AGENT: REVIEWER → проверь → AGENT: DEBUGGER при необходимости"
 
 ---
 

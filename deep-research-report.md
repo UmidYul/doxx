@@ -2,7 +2,7 @@
 
 ## Executive summary
 
-Вы уже заложили сильный “AI‑контур” (правила в `.cursorrules`, контекст проекта в `project-context.md`, практику постановки задач в `cursor-prompts.md`, переменные окружения в `env.structure`). Следующий шаг — превратить это в **последовательность маленьких, исполнимых mini‑итераций**, чтобы Cursor двигался по “конвейеру”: **прочитал контекст → сделал минимальный кусок → проверил → зафиксировал артефакты**.
+Вы уже заложили сильный “AI‑контур” (`.cursorrules`, `ai-context.md`, `mvp-context.md`, `project-context.md`, `cursor-prompts.md`, `env.structure`). Следующий шаг — превратить это в **последовательность маленьких, исполнимых mini‑итераций**, чтобы Cursor двигался по “конвейеру”: **прочитал контекст → сделал минимальный кусок → проверил → зафиксировал артефакты**.
 
 Ниже — план 6–12 первых mini‑итераций для MVP с зависимостями, оценками в часах (ориентировочно), входами/выходами, критериями готовности, требуемыми MCP‑серверными “скиллами” и примерами prompt‑команд. Данные о команде/бюджете/SLA значениях — **не указано** (явно помечено).
 
@@ -10,16 +10,16 @@
 
 Ключевые “негибкие” правила (то, что Cursor должен соблюдать):
 
-- Монорепо‑архитектура и границы слоёв: `apps: web, api, seller`, `services: scraper`, `packages: shared, db, ui`, при этом “API layer НЕ должен знать про scraping”, “Scraper НЕ должен содержать бизнес‑логику API”. (файл `/mnt/data/.cursorrules`, строки 10–16)
-- Модель данных: `Product` — нормализованный товар, `Offer` — цена/магазин; “Один Product имеет много Offer”, “Никогда не смешивать Product и Offer”, “Всегда сохранять original_source_data”. (файл `/mnt/data/.cursorrules`, строки 24–31)
-- Scraping только асинхронно через очередь и pipeline: “scraper → queue → processor → normalize → DB → search index”. (файл `/mnt/data/.cursorrules`, строки 32–39)
-- Async‑нагрузка: “Все тяжелые операции через очередь (BullMQ)”, “Никаких тяжелых операций в HTTP request”. (файл `/mnt/data/.cursorrules`, строки 65–67)
-- Multi‑tenant seller‑контур: “Всегда учитывать seller_id в запросах”. (файл `/mnt/data/.cursorrules`, строки 45–48)
-- Search: в правилах указан Elasticsearch “только для поиска”, а Postgres — source of truth. (файл `/mnt/data/.cursorrules`, строки 40–43)
-- В `project-context.md` MVP‑объём включает “scraping 3 магазинов” и “базовый seller кабинет”. (файл `/mnt/data/project-context.md`, строки 117–124)
-- Нефункциональные требования: “fast search (<300ms)” (из контекста), но среда измерения/методика — **не указано**. (файл `/mnt/data/project-context.md`, строки 127–133)
-- В `cursor-prompts.md` закреплён подход к постановке задач: маленькими шагами, с указанием где код и что сделать; “Сделай маркетплейс” — пример плохого запроса. (файл `/mnt/data/cursor-prompts.md`, строки 4–10 и 22–26)
-- Окружение: Postgres/Redis/Elastic/JWT/Telegram/S3 переменные заданы, но какие компоненты реально включать в MVP — частично конфликтует между файлами (Elastic фигурирует и как обязательный, и как “только для поиска”). (файл `/mnt/data/env.structure`, строки 1–19; файл `/mnt/data/project-context.md`, строки 75–90)
+- Монорепо‑архитектура и границы слоёв: `apps: web, api, seller`, `services: scraper`, `packages: shared, db, ui`, при этом “API layer НЕ должен знать про scraping”, “Scraper НЕ должен содержать бизнес‑логику API”. (файл `.cursorrules`, строки 10–16)
+- Модель данных: `Product` — нормализованный товар, `Offer` — цена/магазин; “Один Product имеет много Offer”, “Никогда не смешивать Product и Offer”, “Всегда сохранять original_source_data”. (файл `.cursorrules`, строки 24–31)
+- Scraping только асинхронно через очередь и pipeline: “scraper → queue → processor → normalize → DB → search index”. (файл `.cursorrules`, строки 32–39)
+- Async‑нагрузка: “Все тяжелые операции через очередь (BullMQ)”, “Никаких тяжелых операций в HTTP request”. (файл `.cursorrules`, строки 65–67)
+- Multi‑tenant seller‑контур: “Всегда учитывать seller_id в запросах”. (файл `.cursorrules`, строки 45–48)
+- Search: в правилах указан Elasticsearch “только для поиска”, а Postgres — source of truth. (файл `.cursorrules`, строки 40–43)
+- В `project-context.md` MVP‑объём включает “scraping 3 магазинов” и “базовый seller кабинет”. (файл `project-context.md`, строки 117–124)
+- Нефункциональные требования: “fast search (<300ms)” (из контекста), но среда измерения/методика — **не указано**. (файл `project-context.md`, строки 127–133)
+- В `cursor-prompts.md` закреплён подход к постановке задач: маленькими шагами, с указанием где код и что сделать; “Сделай маркетплейс” — пример плохого запроса. (файл `cursor-prompts.md`, строки 4–10 и 22–26)
+- Окружение: Postgres/Redis/Elastic/JWT/Telegram/S3 переменные заданы, но какие компоненты реально включать в MVP — частично конфликтует между файлами (Elastic фигурирует и как обязательный, и как “только для поиска”). (файл `env.structure`, строки 1–19; файл `project-context.md`, строки 75–90)
 
 Практическая интерпретация для плана:
 - P0 должен довести до “пользователь видит каталог/поиск/офферы/кликаут” + минимум инжеста, иначе продукта нет.
@@ -39,7 +39,7 @@
 Зависимости: нет
 
 Задача:
-- Cursor читает: `/mnt/data/.cursorrules`, `/mnt/data/project-context.md`, `/mnt/data/product-context.md`, `/mnt/data/cursor-prompts.md`, `/mnt/data/env.structure`
+- Cursor читает: `.cursorrules`, `ai-context.md`, `mvp-context.md`, `project-context.md`, `product-context.md`, `cursor-prompts.md`, `env.structure`
 - Формирует короткий “контракт разработки”: что строим в MVP / что запрещено / какие сущности обязательны.
 
 Вход:
@@ -52,7 +52,7 @@
   3) принятые технические решения + “не указано” где нужно решение.
 
 Done‑criteria:
-- В документе явно перечислены запреты: не делать marketplace/CRM; границы API vs scraper; async через очередь; multi‑tenant. (опирается на `/mnt/data/.cursorrules` 14–16, 65–67 и `/mnt/data/cursor-prompts.md` 22–26)
+- В документе явно перечислены запреты: не делать marketplace/CRM; границы API vs scraper; async через очередь; multi‑tenant. (опирается на `.cursorrules` 14–16, 65–67 и `cursor-prompts.md` 22–26)
 - Отдельным пунктом отмечено противоречие “Elastic vs Postgres search” и способ разрешения (решение/методика — если не принято, то пометка “не указано”).
 
 MCP:
@@ -80,7 +80,7 @@ MCP:
 - Задать единый TypeScript‑стандарт, eslint/formatter, общие скрипты.
 
 Вход:
-- правила структуры из `/mnt/data/.cursorrules` (10–16)
+- правила структуры из `.cursorrules` (10–16)
 - “не делать хаотичные файлы” (5)
 
 Выходные артефакты:
@@ -89,7 +89,7 @@ MCP:
 - базовые `tsconfig`/линтер конфиги (что именно — не указано; выбирайте минимально рабочее)
 
 Done‑criteria:
-- `npm run build`/`npm run lint`/`npm run typecheck` существуют и выполняются локально (конкретные скрипты и команды в docs уже примером показаны через npm — `/mnt/data/product-context.md` 879–885)
+- `npm run build`/`npm run lint`/`npm run typecheck` существуют и выполняются локально (конкретные скрипты и команды в docs уже примером показаны через npm — `product-context.md` 879–885)
 - структура не нарушает `.cursorrules` (apps/services/packages на местах)
 
 MCP:
@@ -115,7 +115,7 @@ MCP:
 - Синхронизировать `.env.example` с `env.structure`.
 
 Вход:
-- `/mnt/data/env.structure` (DATABASE_URL, REDIS_URL, ELASTIC_URL, JWT_SECRET, TELEGRAM_BOT_TOKEN, S3_*)
+- `env.structure` (DATABASE_URL, REDIS_URL, ELASTIC_URL, JWT_SECRET, TELEGRAM_BOT_TOKEN, S3_*)
 
 Выходные артефакты:
 - `infra/docker/compose.yaml` (или `docker-compose.yml`)
@@ -125,7 +125,7 @@ MCP:
 Done‑criteria:
 - `docker compose up -d` поднимает Postgres и Redis
 - из приложения есть соединение к Postgres/Redis (проверка запросом/пингом)
-- Elastic контейнер: включён как опциональный профиль (решение “обязателен в MVP” — не указано; но переменная ELASTIC_URL есть) (`/mnt/data/env.structure` 7–9)
+- Elastic контейнер: включён как опциональный профиль (решение “обязателен в MVP” — не указано; но переменная ELASTIC_URL есть) (`env.structure` 7–9)
 
 MCP:
 - docker (обязательно)
@@ -153,11 +153,11 @@ MCP:
 - Ввести минимальные таблицы:
   - Product, Offer, Category, Seller (из project-context)
   - PriceSnapshot (для истории цены; в docs это важно для каталога)
-- Индексы и constraints: минимум для связей `Product 1..* Offer`. (логика указана в `/mnt/data/.cursorrules` 24–28 и `/mnt/data/project-context.md` 30–43)
+- Индексы и constraints: минимум для связей `Product 1..* Offer`. (логика указана в `.cursorrules` 24–28 и `project-context.md` 30–43)
 
 Вход:
-- сущности из `/mnt/data/project-context.md` 14–55
-- модель “Product→Offers” в `/mnt/data/.cursorrules` 24–28
+- сущности из `project-context.md` 14–55
+- модель “Product→Offers” в `.cursorrules` 24–28
 
 Выходные артефакты:
 - Prisma schema + миграции
@@ -195,11 +195,11 @@ MCP:
   - `GET /products/:id`
   - `GET /products/:id/offers`
   - `GET /offers/:id/redirect` (кликаут)
-- Ввести DTO и валидацию входных параметров (важно по `.cursorrules`: “Use DTO”, “Validate input”) (`/mnt/data/.cursorrules` 21–22, 85)
+- Ввести DTO и валидацию входных параметров (важно по `.cursorrules`: “Use DTO”, “Validate input”) (`.cursorrules` 21–22, 85)
 
 Вход:
-- правила API из `/mnt/data/.cursorrules` 50–60
-- принципы API из `/mnt/data/project-context.md` 108–113
+- правила API из `.cursorrules` 50–60
+- принципы API из `project-context.md` 108–113
 
 Выходные артефакты:
 - route handlers (в `apps/web/app/api/...` или `apps/api/...` — решение разделения `web/api` **не указано**, но структура подразумевается в `.cursorrules` 10–12)
@@ -208,7 +208,7 @@ MCP:
 
 Done‑criteria:
 - endpoints возвращают корректные данные из Postgres
-- pagination работает (page/pageSize или cursor — выбор **не указано**, но pagination обязателен: `/mnt/data/project-context.md` 111–113)
+- pagination работает (page/pageSize или cursor — выбор **не указано**, но pagination обязателен: `project-context.md` 111–113)
 - redirect endpoint логирует событие или минимум делает 302 (лог кликаута — если не делаете в MVP, пометка “не указано”)
 
 MCP:
@@ -222,7 +222,7 @@ MCP:
 
 Проверки:
 - `curl http://localhost:3000/api/health` (порт/путь — **не указано**, зависит от вашей реализации)
-- SQL контроль: запросы не делают N+1 (см. `/mnt/data/.cursorrules` 82)
+- SQL контроль: запросы не делают N+1 (см. `.cursorrules` 82)
 
 ---
 
@@ -234,12 +234,12 @@ MCP:
 Задача:
 - Реализовать `GET /search?q=` с базовой релевантностью.
 - Выбор реализации:
-  - В `project-context.md` указано “Поиск идет через Elasticsearch” (`/mnt/data/project-context.md` 75–80)
-  - Но в правилах `.cursorrules` Postgres — source of truth, а Elastic — только для поиска (`/mnt/data/.cursorrules` 40–43)
+  - В `project-context.md` указано “Поиск идет через Elasticsearch” (`project-context.md` 75–80)
+  - Но в правилах `.cursorrules` Postgres — source of truth, а Elastic — только для поиска (`.cursorrules` 40–43)
 - Компромисс в плане: P0 делаем Postgres‑based поиск (быстро), P1/P2 добавляем Elastic indexing, если нужно (решение “обязательно ли Elastic” — **не указано**, поэтому фиксируем как опциональную ветку).
 
 Вход:
-- требование “fast search (<300ms)” — целевой ориентир (`/mnt/data/project-context.md` 132), но среда измерения — **не указано**.
+- требование “fast search (<300ms)” — целевой ориентир (`project-context.md` 132), но среда измерения — **не указано**.
 
 Выходные артефакты:
 - `/search` endpoint + тесты
@@ -277,7 +277,7 @@ MCP:
 - Важно: не добавлять marketplace/CRM разделы.
 
 Вход:
-- MVP scope по сути: “поиск / карточка товара” (`/mnt/data/project-context.md` 119–123)
+- MVP scope по сути: “поиск / карточка товара” (`project-context.md` 119–123)
 
 Выходные артефакты:
 - страницы и компоненты
@@ -307,13 +307,13 @@ MCP:
 Зависимости: MI‑03, MI‑04
 
 Задача:
-- Вынести асинхронные задачи в очередь (строго по `.cursorrules`: тяжёлое только в queue) (`/mnt/data/.cursorrules` 65–67)
-- Поднять worker процесс (services/scraper или services/ingest — naming не критичен, “services: scraper (standalone)” закреплено) (`/mnt/data/.cursorrules` 11–12)
+- Вынести асинхронные задачи в очередь (строго по `.cursorrules`: тяжёлое только в queue) (`.cursorrules` 65–67)
+- Поднять worker процесс (services/scraper или services/ingest — naming не критичен, “services: scraper (standalone)” закреплено) (`.cursorrules` 11–12)
 - Минимум: одна очередь `scrape` и одна `process` (детализация очередей может быть позже).
 
 Вход:
-- pipeline из `.cursorrules` (`scraper → queue → processor → normalize → DB …`) (`/mnt/data/.cursorrules` 37–39)
-- из `project-context`: scraping pipeline steps (`/mnt/data/project-context.md` 83–90)
+- pipeline из `.cursorrules` (`scraper → queue → processor → normalize → DB …`) (`.cursorrules` 37–39)
+- из `project-context`: scraping pipeline steps (`project-context.md` 83–90)
 
 Выходные артефакты:
 - модуль подключения к Redis
@@ -345,7 +345,7 @@ MCP:
 
 Задача:
 - Реализовать ingest из CSV как самый предсказуемый источник данных (даже если “реальных” feed пока нет, формат можно начать с локального fixtures).
-- Сохранять `raw_data`/original_source_data (требование закреплено в `.cursorrules`) (`/mnt/data/.cursorrules` 30–31)
+- Сохранять `raw_data`/original_source_data (требование закреплено в `.cursorrules`) (`.cursorrules` 30–31)
 - Делать snapshot цены в `PriceSnapshot`.
 
 Вход:
@@ -388,8 +388,8 @@ MCP:
 - Учитывать лимиты источника (rate / retry) на уровне очереди.
 
 Вход:
-- правило “Использовать Playwright для динамики” (`/mnt/data/.cursorrules` 34)
-- MVP scope хочет scraping нескольких магазинов, но начинаем с одного, чтобы стабилизировать pipeline (`/mnt/data/project-context.md` 119)
+- правило “Использовать Playwright для динамики” (`.cursorrules` 34)
+- MVP scope хочет scraping нескольких магазинов, но начинаем с одного, чтобы стабилизировать pipeline (`project-context.md` 119)
 
 Выходные артефакты:
 - `services/scraper/connectors/<source>/...`
@@ -463,8 +463,8 @@ MCP:
   - unit tests для нормализации/матчинга
   - integration tests для API/DB
   - smoke e2e (Playwright) для “search→product→offers→clickout”
-- Добавить CI workflow, как минимум: lint, typecheck, test, build, migrate deploy (пример команд есть в `product-context.md`: `npm ci`, `npm run lint`, `npm run typecheck`, `npm test`, `npx prisma migrate deploy`, `npm run build`) (`/mnt/data/product-context.md` 879–892)
-- Базовый rate limit (в `.cursorrules` это обязательное правило security) (`/mnt/data/.cursorrules` 86)
+- Добавить CI workflow, как минимум: lint, typecheck, test, build, migrate deploy (пример команд есть в `product-context.md`: `npm ci`, `npm run lint`, `npm run typecheck`, `npm test`, `npx prisma migrate deploy`, `npm run build`) (`product-context.md` 879–892)
+- Базовый rate limit (в `.cursorrules` это обязательное правило security) (`.cursorrules` 86)
 
 Вход:
 - quality‑команды, показанные в `product-context.md` (879–892)
@@ -497,17 +497,17 @@ MCP:
 
 Ниже — конкретные места, которые можно “передать владельцу CRM/marketplace”. По вашему требованию: **CRM помечен как “не входит в MVP”**.
 
-Файл: `/mnt/data/project-context.md`
+Файл: `project-context.md`
 - Marketplace/CRM как часть общей платформы (не MVP‑обязательство, а vision):
   - “предоставляет маркетплейс…” и далее “…marketplace… будущий CRM”. (строки 4–10)
 - Seller type содержит “marketplace | external” (архитектурный маркер, но не означает реализацию заказов в MVP). (строка 52)
 - Telegram: “будущий CRM через чат” (явно future). (строки 101–105)
 - FUTURE: “full CRM” (явно после MVP). (строка 140)
 
-Файл: `/mnt/data/cursor-prompts.md`
+Файл: `cursor-prompts.md`
 - Прямой запрет‑пример: “Сделай маркетплейс” указан как BAD PROMPT (т.е. не задача для MVP‑реализации “с наскока”). (строки 22–26)
 
-Файл: `/mnt/data/product-context.md`
+Файл: `product-context.md`
 - Явное указание, что marketplace/CRM выносить в Scale‑фазу (т.е. не MVP):
   - формулировка в блоке “Проблемные зоны”: marketplace и CRM описаны как источники распыления, и рекомендуется вынести их из MVP. (строка 11; цитировать можно фрагмент до служебных ссылок)
 
@@ -542,7 +542,7 @@ MCP:
 - marketplace/CRM/ML/сложные фичи (если не в этой итерации)
 ```
 
-Это напрямую соответствует “RULE 1–2” из `cursor-prompts.md`: указывать где код и просить маленькими задачами. (файл `/mnt/data/cursor-prompts.md`, строки 4–10)
+Это напрямую соответствует “RULE 1–2” из `cursor-prompts.md`: указывать где код и просить маленькими задачами. (файл `cursor-prompts.md`, строки 4–10)
 
 ### Примеры промтов для трёх режимов работы Cursor
 
