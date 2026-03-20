@@ -1,6 +1,0 @@
-{
-  "version": 3,
-  "sources": [],
-  "sections": [
-    {"offset": {"line": 10, "column": 0}, "map": {"version":3,"sources":["file:///C:/Users/Lenovo/Desktop/doxx/apps/api/src/app/page.tsx"],"sourcesContent":["export default function Page() {\n  return <div>API is running</div>;\n}\n"],"names":["Page"],"mappings":";;;;;;AAAe,SAASA;IACtB,qBAAO,8OAAC;kBAAI;;;;;;AACd"}}]
-}

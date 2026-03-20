@@ -1,0 +1,155 @@
+# UZ Tech Scraper — Cursor Rules
+
+## Project context
+Python scraper for tech products (phones, laptops, TVs) from Uzbekistan e-commerce stores.
+Architecture: Domain-Driven Design (DDD). Full spec in `PROJECT.md` — read it before making
+architectural decisions.
+
+Target stores: mediapark.uz (static HTML), olx.uz (static), texnomart.uz (mixed JS),
+makro.uz (REST API), uzum.uz (React SPA + GraphQL).
+
+---
+
+## Non-negotiable rules
+
+### Architecture
+- Domain layer (`domain/`) must have ZERO imports from `infrastructure/` or `application/`
+- Every external boundary (spider output, DB input, API response) must be validated by Pydantic
+- Never add a new spider without implementing `parse_product_list()` AND `parse_product_detail()`
+  separately — they are tested independently
+- Spider logic = data extraction only. Business logic (dedup, scoring, pricing) goes in
+  `application/` pipelines
+
+### Python style
+- Python 3.11+. Use `match/case` for status enums, `X | None` instead of `Optional[X]`
+- All async DB calls use `asyncpg` via SQLAlchemy 2.0 async session
+- No bare `except:` — always catch specific exceptions and log with `spider.logger.error()`
+- Use `from __future__ import annotations` in all domain files
+
+### Scrapy specifics
+- Never block the Scrapy reactor — use `yield` in parse methods, not `return`
+- All spider settings go in `custom_settings` on the class, not global `settings.py`
+- Every Request must have an `errback=self.errback_default` argument
+- `DOWNLOAD_DELAY` minimum 1.0 — never go below this on production
+
+---
+
+## Patterns to always follow
+
+### Spec extraction cascade (never skip steps)
+```python
+# Always try structured first, then regex, then LLM
+# See application/extractors/spec_extractor.py
+specs = StructuredExtractor(schema).extract(raw)
+if specs.completeness_score < SCORE_THRESHOLD_STRUCTURED:
+    specs = RegexExtractor(schema).enrich(specs, description)
+if specs.completeness_score < SCORE_THRESHOLD_REGEX:
+    specs = LLMExtractor(schema).enrich(specs, description)  # expensive — cache results
+```
+
+### Zero-result guard (every spider)
+```python
+urls = self.parse_product_list(response)
+if not urls and response.meta.get('page', 1) == 1:
+    self.logger.warning(f"[ZERO_RESULT] {response.url}")
+    return  # don't silently continue
+```
+
+### Infinite pagination guard
+```python
+# Before yielding next page request — always check bloom filter
+if not self._is_duplicate_page(response, next_url):
+    yield scrapy.Request(next_url, ...)
+```
+
+### Unknown spec fields — log, never raise
+```python
+# In all spider spec parsers:
+field = self.SPEC_FIELD_MAP.get(label)
+if field:
+    raw[field] = value
+else:
+    raw.setdefault('_unknown_fields', {})[label] = value  # not an error
+```
+
+### Price parsing — always handle edge cases
+```python
+# UZS prices use space as thousands separator: "1 500 000"
+# "По договорённости" is PriceStatus.ON_REQUEST, not an error
+# Always store both amount AND original_amount (crossed-out price)
+```
+
+---
+
+## Common mistakes to avoid
+
+### Images
+- NEVER deduplicate images by URL across variants — same URL can show different color
+- ALWAYS check `rembg_confidence > 0.7` before using background-removed image
+- NEVER assume img.src is populated without waiting for JS — use Playwright scroll
+- Perceptual hash dedup (imagehash) runs WITHIN one product only
+
+### Specs
+- RAM > 32 GB in a phone = parsing error, likely storage — add sanity bounds check
+- Display size: always replace `,` → `.` before float() — UZ sites use comma decimal
+- Processor names: always normalize via `config/processor_aliases.json`
+- Storage: handle TB → GB conversion (1 TB = 1024 GB)
+
+### Database
+- price_records is APPEND-ONLY — never UPDATE, never DELETE
+- fingerprint is computed from (brand, model, color, storage_gb, ram_gb) — lowercase, strip
+- specs column is JSONB — query with `specs->>'ram_gb'` not as a regular column
+
+### Network
+- 200 + body < 500 bytes = soft block, not success — raise IgnoreRequest()
+- Redirect to m.sitename.uz = mobile redirect — retry with desktop User-Agent
+- Never hardcode delays — use AUTOTHROTTLE_ENABLED = True
+
+---
+
+## File naming and location rules
+
+| What | Where |
+|---|---|
+| New canonical spec schema | `domain/specs/{category}.py` |
+| New spider | `infrastructure/spiders/{store}.py` |
+| New extraction strategy | `application/extractors/{name}_extractor.py` |
+| New pipeline | `infrastructure/pipelines/{name}_pipeline.py` |
+| New middleware | `infrastructure/middlewares/{name}_middleware.py` |
+| Canary test for a store | `tests/canary/test_{store}_canary.py` |
+| Processor alias additions | `config/processor_aliases.json` |
+
+---
+
+## MCP tools available in this project
+
+- **postgres** — query the DB directly: inspect scraped products, check price history,
+  verify dedup, count items per store. Use for debugging and schema exploration.
+- **redis** — inspect Celery task queues, check bloom filter keys, monitor job state.
+- **playwright** — open a store URL in a real browser to inspect DOM structure, find
+  CSS selectors, test GraphQL interceptors. Use before writing a new spider.
+- **filesystem** — read/write project files. Use for updating `processor_aliases.json`,
+  reading spider output logs, checking migration files.
+
+---
+
+## When adding a new store spider — checklist
+
+1. [ ] Open the store in Playwright MCP, inspect product list page structure
+2. [ ] Check if site uses JS rendering (view-source empty = needs Playwright)
+3. [ ] Find GraphQL/REST API calls in Network tab if SPA
+4. [ ] Map spec table rows to `SPEC_FIELD_MAP` dict
+5. [ ] Add `CANARY_PRODUCTS` entry in `tests/canary/canary_products.py`
+6. [ ] Add Celery beat schedule in `tasks/celery_app.py`
+7. [ ] Test with `scrapy crawl {store} -s CLOSESPIDER_ITEMCOUNT=5`
+8. [ ] Verify in Postgres: `SELECT * FROM product_variants LIMIT 5` via MCP
+
+---
+
+## Key domain invariants — never violate
+
+- A `ProductVariant` belongs to exactly one `ProductFamily`
+- A `SourceRecord` belongs to exactly one `ProductVariant`
+- `price_records` has no FK constraint violations — always create `source_record` first
+- `completeness_score` is always recomputed after any spec enrichment step
+- `fingerprint` must be unique — conflict = existing variant, do upsert not insert
