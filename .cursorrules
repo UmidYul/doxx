@@ -1,155 +1,284 @@
 # UZ Tech Scraper — Cursor Rules
 
-## Project context
-Python scraper for tech products (phones, laptops, TVs) from Uzbekistan e-commerce stores.
-Architecture: Domain-Driven Design (DDD). Full spec in `PROJECT.md` — read it before making
-architectural decisions.
+## What this service is
+A sensor service. It scrapes tech product data from Uzbekistan e-commerce
+stores, normalizes it, and sends ONLY changes (deltas) to CRM via REST API.
 
-Target stores: mediapark.uz (static HTML), olx.uz (static), texnomart.uz (mixed JS),
-makro.uz (REST API), uzum.uz (React SPA + GraphQL).
+Read PROJECT.md before making any architectural decision.
+The scraper has its own lightweight DB. It never touches CRM's database.
+
+---
+
+## The three laws — never break these
+
+1. Scraper NEVER connects to CRM's database directly.
+   Only channel: POST /api/parser/sync via CRMClient.
+
+2. Scraper NEVER sends an event if price and in_stock did not change.
+   DeltaDetector returns [] → nothing is sent → CRM is not called.
+
+3. parse_cache is updated ONLY after a successful CRM API response.
+   If CRM is down: save to pending_events, update cache later.
+
+---
+
+## Architecture map
+
+```
+Spider → RawProduct
+       → ValidatePipeline     (title + url present?)
+       → NormalizePipeline    (RawProduct → NormalizedProduct)
+       → ImagePipeline        (download + CLIP + rembg)
+       → DeltaPipeline        (compare with parse_cache → events)
+                                    ↓ if changed
+                              EventSender → CRM API
+                                    ↓ if CRM down
+                              pending_events (retry every 5 min)
+```
 
 ---
 
 ## Non-negotiable rules
 
 ### Architecture
-- Domain layer (`domain/`) must have ZERO imports from `infrastructure/` or `application/`
-- Every external boundary (spider output, DB input, API response) must be validated by Pydantic
-- Never add a new spider without implementing `parse_product_list()` AND `parse_product_detail()`
-  separately — they are tested independently
-- Spider logic = data extraction only. Business logic (dedup, scoring, pricing) goes in
-  `application/` pipelines
+- domain/ has ZERO imports from infrastructure/ or application/
+- application/crm_client.py is the ONLY place that calls CRM API
+- infrastructure/db/ only contains parser's own tables — never CRM tables
+- Spiders only extract raw data — no business logic inside spider methods
+- DeltaDetector is the only place that compares old vs new values
+
+### Three parse modes — always implement all three
+Every spider must implement:
+- fast_parse_item(response)  — price + in_stock only, runs every 2h
+- full_parse_item(response)  — complete specs + images, runs weekly
+- discover_urls(response)    — find new URLs, runs daily
+
+### Spec extraction cascade — never skip steps
+```python
+specs = StructuredExtractor(schema).extract(raw_specs)
+if specs.completeness_score < SCORE_THRESHOLD_STRUCTURED:  # 0.7
+    specs = RegexExtractor(schema).enrich(specs, description)
+if specs.completeness_score < SCORE_THRESHOLD_REGEX:       # 0.4
+    specs = LLMExtractor(schema).enrich(specs, description)
+```
+
+### Delta detection — return [] when nothing changed
+```python
+# Most important optimization: if nothing changed, CRM is never called.
+events = delta_detector.detect(normalized, cache)
+if not events:
+    return  # do not call CRM, do not update cache
+```
 
 ### Python style
-- Python 3.11+. Use `match/case` for status enums, `X | None` instead of `Optional[X]`
-- All async DB calls use `asyncpg` via SQLAlchemy 2.0 async session
-- No bare `except:` — always catch specific exceptions and log with `spider.logger.error()`
-- Use `from __future__ import annotations` in all domain files
-
-### Scrapy specifics
-- Never block the Scrapy reactor — use `yield` in parse methods, not `return`
-- All spider settings go in `custom_settings` on the class, not global `settings.py`
-- Every Request must have an `errback=self.errback_default` argument
-- `DOWNLOAD_DELAY` minimum 1.0 — never go below this on production
+- Python 3.11+. Use X | None not Optional[X]
+- from __future__ import annotations in all files
+- Never bare except: — catch specific exceptions, always log
+- All event models use Literal for the event field discriminator
 
 ---
 
 ## Patterns to always follow
 
-### Spec extraction cascade (never skip steps)
+### Zero-result guard — every spider
 ```python
-# Always try structured first, then regex, then LLM
-# See application/extractors/spec_extractor.py
-specs = StructuredExtractor(schema).extract(raw)
-if specs.completeness_score < SCORE_THRESHOLD_STRUCTURED:
-    specs = RegexExtractor(schema).enrich(specs, description)
-if specs.completeness_score < SCORE_THRESHOLD_REGEX:
-    specs = LLMExtractor(schema).enrich(specs, description)  # expensive — cache results
-```
-
-### Zero-result guard (every spider)
-```python
-urls = self.parse_product_list(response)
+urls = self.discover_urls(response)
 if not urls and response.meta.get('page', 1) == 1:
     self.logger.warning(f"[ZERO_RESULT] {response.url}")
-    return  # don't silently continue
+    return
 ```
 
-### Infinite pagination guard
+### Infinite pagination guard — every spider
 ```python
-# Before yielding next page request — always check bloom filter
-if not self._is_duplicate_page(response, next_url):
+next_url = self.get_next_page(response)
+if next_url and not self._is_duplicate_page(response, next_url):
     yield scrapy.Request(next_url, ...)
 ```
 
-### Unknown spec fields — log, never raise
+### Unknown spec fields — log, never drop
 ```python
-# In all spider spec parsers:
-field = self.SPEC_FIELD_MAP.get(label)
+field = FIELD_ALIASES.get(normalize_label(label))
 if field:
     raw[field] = value
 else:
-    raw.setdefault('_unknown_fields', {})[label] = value  # not an error
+    raw.setdefault('_unknown_fields', {})[label] = value
 ```
 
-### Price parsing — always handle edge cases
+### CRM unavailable — always use pending_events fallback
 ```python
-# UZS prices use space as thousands separator: "1 500 000"
-# "По договорённости" is PriceStatus.ON_REQUEST, not an error
-# Always store both amount AND original_amount (crossed-out price)
+async def send_event(event) -> bool:
+    try:
+        return await crm_client.sync_event(event)
+    except CRMUnavailableError:
+        await event_repo.save_pending(event)
+        return False
+```
+
+### parse_cache update timing — only after CRM confirms
+```python
+# CORRECT
+crm_response = await crm_client.sync_event(event)
+if crm_response and crm_response.status == "ok":
+    await cache_repo.upsert(url, price=new_price, ...)
 ```
 
 ---
 
 ## Common mistakes to avoid
 
+### Delta logic
+- NEVER send product_found for a URL already in parse_cache
+- NEVER send price_changed if abs(new - old) <= 100 UZS (use tolerance)
+- NEVER update parse_cache if CRM returned error or was unreachable
+
+### Spec extraction
+- NEVER overwrite a field filled by structured with a regex result
+- RAM > 32 GB in phone context = parsing error, log [SPEC_SANITY_SWAP]
+- Display size: always replace comma with dot before float() parse
+- Storage: handle TB to GB conversion (1 TB = 1024 GB)
+- Processor: always normalize via config/processor_aliases.json
+
 ### Images
-- NEVER deduplicate images by URL across variants — same URL can show different color
-- ALWAYS check `rembg_confidence > 0.7` before using background-removed image
-- NEVER assume img.src is populated without waiting for JS — use Playwright scroll
-- Perceptual hash dedup (imagehash) runs WITHIN one product only
+- NEVER deduplicate by URL alone — use perceptual hash (imagehash)
+- ALWAYS check rembg_confidence > 0.7 before using background-removed image
+- Check data-src / data-lazy-src / data-original, not just src
 
-### Specs
-- RAM > 32 GB in a phone = parsing error, likely storage — add sanity bounds check
-- Display size: always replace `,` → `.` before float() — UZ sites use comma decimal
-- Processor names: always normalize via `config/processor_aliases.json`
-- Storage: handle TB → GB conversion (1 TB = 1024 GB)
-
-### Database
-- price_records is APPEND-ONLY — never UPDATE, never DELETE
-- fingerprint is computed from (brand, model, color, storage_gb, ram_gb) — lowercase, strip
-- specs column is JSONB — query with `specs->>'ram_gb'` not as a regular column
+### Scrapy
+- Never block the reactor — yield not return in parse methods
+- Every Request needs errback=self.errback_default
+- DOWNLOAD_DELAY minimum 1.0 in production
+- fast_parse: work from listing page, avoid loading each product page
 
 ### Network
-- 200 + body < 500 bytes = soft block, not success — raise IgnoreRequest()
-- Redirect to m.sitename.uz = mobile redirect — retry with desktop User-Agent
+- 200 + body < 500 bytes = soft block → raise IgnoreRequest
+- Redirect to m.site.uz = mobile redirect → retry with desktop User-Agent
 - Never hardcode delays — use AUTOTHROTTLE_ENABLED = True
 
 ---
 
-## File naming and location rules
+## File naming
 
 | What | Where |
 |---|---|
-| New canonical spec schema | `domain/specs/{category}.py` |
-| New spider | `infrastructure/spiders/{store}.py` |
-| New extraction strategy | `application/extractors/{name}_extractor.py` |
-| New pipeline | `infrastructure/pipelines/{name}_pipeline.py` |
-| New middleware | `infrastructure/middlewares/{name}_middleware.py` |
-| Canary test for a store | `tests/canary/test_{store}_canary.py` |
-| Processor alias additions | `config/processor_aliases.json` |
+| New spider | infrastructure/spiders/{store}.py |
+| New spec schema | domain/specs/{category}.py |
+| New extractor | application/extractors/{name}_extractor.py |
+| New pipeline | infrastructure/pipelines/{name}_pipeline.py |
+| New middleware | infrastructure/middlewares/{name}_middleware.py |
+| Processor aliases | config/processor_aliases.json |
+| Canary entry | tests/canary/canary_products.py |
 
 ---
 
-## MCP tools available in this project
+## Parser's own DB — these tables only
 
-- **postgres** — query the DB directly: inspect scraped products, check price history,
-  verify dedup, count items per store. Use for debugging and schema exploration.
-- **redis** — inspect Celery task queues, check bloom filter keys, monitor job state.
-- **playwright** — open a store URL in a real browser to inspect DOM structure, find
-  CSS selectors, test GraphQL interceptors. Use before writing a new spider.
-- **filesystem** — read/write project files. Use for updating `processor_aliases.json`,
-  reading spider output logs, checking migration files.
+| Table | Write rule |
+|---|---|
+| {store}_products | INSERT on every scrape |
+| parse_cache | UPDATE only after CRM confirms ok |
+| parse_logs | INSERT per run |
+| parse_queue | manage lifecycle |
+| pending_events | append-only + status updates |
 
----
-
-## When adding a new store spider — checklist
-
-1. [ ] Open the store in Playwright MCP, inspect product list page structure
-2. [ ] Check if site uses JS rendering (view-source empty = needs Playwright)
-3. [ ] Find GraphQL/REST API calls in Network tab if SPA
-4. [ ] Map spec table rows to `SPEC_FIELD_MAP` dict
-5. [ ] Add `CANARY_PRODUCTS` entry in `tests/canary/canary_products.py`
-6. [ ] Add Celery beat schedule in `tasks/celery_app.py`
-7. [ ] Test with `scrapy crawl {store} -s CLOSESPIDER_ITEMCOUNT=5`
-8. [ ] Verify in Postgres: `SELECT * FROM product_variants LIMIT 5` via MCP
+Never touch tables that belong to CRM.
 
 ---
 
-## Key domain invariants — never violate
+## Events — when to send each
 
-- A `ProductVariant` belongs to exactly one `ProductFamily`
-- A `SourceRecord` belongs to exactly one `ProductVariant`
-- `price_records` has no FK constraint violations — always create `source_record` first
-- `completeness_score` is always recomputed after any spec enrichment step
-- `fingerprint` must be unique — conflict = existing variant, do upsert not insert
+| Event | Trigger |
+|---|---|
+| product_found | URL not in parse_cache |
+| price_changed | price diff > 100 UZS |
+| out_of_stock | in_stock changed to False |
+| characteristic_added | new non-null spec field discovered |
+
+---
+
+## MCP tools
+
+- postgres — check parse_cache, count pending_events, inspect parse_logs
+- redis — inspect Celery queues, bloom filter keys, retry task state
+- playwright — open store URLs to find CSS selectors before writing spiders
+- filesystem — update processor_aliases.json, read debug raw_html
+
+---
+
+## Adding a new store — checklist
+
+1. [ ] Open store in Playwright MCP, inspect DOM
+2. [ ] Check if JS rendering needed (view-source empty = Playwright)
+3. [ ] Find API/GraphQL calls in Network tab if SPA
+4. [ ] Create {store}_products table in migration
+5. [ ] Implement spider: fast_parse_item + full_parse_item + discover_urls
+6. [ ] Add SPEC_FIELD_MAP entries for this store's label language
+7. [ ] Add entry to CANARY_PRODUCTS
+8. [ ] Add Celery beat schedules for all 3 modes
+9. [ ] Test: scrapy crawl {store} -s CLOSESPIDER_ITEMCOUNT=5
+10. [ ] Verify parse_cache: SELECT * FROM parse_cache WHERE source_name='{store}'
+11. [ ] Verify events: SELECT * FROM pending_events ORDER BY created_at DESC LIMIT 10
+
+---
+
+## Logging tags — use these for grep
+
+| Tag | When |
+|---|---|
+| [ZERO_RESULT] | Listing page returned 0 URLs |
+| [RATE_LIMIT_SUSPECTED] | Response time spike |
+| [EMPTY_BODY_200] | 200 with less than 500 bytes |
+| [SPEC_SANITY_SWAP] | RAM and storage values swapped |
+| [FUZZY_MATCH] | Spec label matched via difflib |
+| [CRM_UNAVAILABLE] | CRM down, saved to pending_events |
+| [CRM_SYNC] | Event successfully sent to CRM |
+| [LLM_EXTRACTION] | LLM fallback used |
+| [LLM_CACHE_HIT] | LLM result from cache |
+| [CANARY_FAIL] | Canary assertion failed |
+| [DELTA_EMPTY] | No changes, nothing sent |
+
+Context: Read PROJECT.md fully. Read infrastructure/spiders/base.py.
+
+Mediapark.uz is a static HTML store. It has a structured spec table
+which is the best source of characteristics.
+
+Task: Implement infrastructure/spiders/mediapark.py
+
+Requirements:
+- MediaparkSpider(BaseProductSpider), store_name = "mediapark"
+- start_category_urls: real mediapark.uz URLs for phones, laptops, TVs,
+  tablets, appliances.
+
+- discover_urls(response) → list[str]:
+    Extract all product detail URLs from a category/listing page.
+    Handle pagination via get_next_page(response).
+    Call _zero_result_guard and _infinite_pagination_guard.
+
+- fast_parse_item(response) → dict:
+    Extract ONLY: price_str, in_stock, url.
+    Price: find current price element, handle crossed-out (original) price.
+    in_stock: detect "нет в наличии" / "out of stock" patterns.
+    This must be fast — no heavy DOM traversal.
+
+- full_parse_item(response) → dict:
+    Extract: title, brand, all spec table rows, all image URLs,
+    external_id (from URL or page), price_str, in_stock.
+    SPEC_FIELD_MAP: complete mapping of all Russian spec table
+    labels on mediapark.uz → domain field names (25+ entries).
+    Unknown rows → raw['_unknown_fields'][label] = value (never drop).
+    Images: prefer full-resolution URLs, handle data-src lazy loading.
+
+- Canary: add mediapark entry to tests/canary/canary_products.py
+  with a real Samsung phone URL and assertions.
+
+Output the complete file.
+
+---
+
+### Автоматическое обновление README
+
+Добавь в каждый промпт:
+После завершения работы над модулем:
+- Обнови README.md этого модуля
+- Добавь строку в таблицу истории изменений
+  с датой, описанием что сделано
+- Обнови раздел "Файлы" если добавились новые
