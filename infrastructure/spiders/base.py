@@ -10,6 +10,8 @@ class BaseProductSpider(scrapy.Spider):
     store_name: str = ""
     parse_mode: str = "full"  # "fast", "full", "discover"
 
+    # Default: lightweight HTTP. For SPA/JS-heavy sites, override custom_settings
+    # with scrapy-playwright download handlers (install optional extra `.[playwright]`).
     custom_settings = {
         "DOWNLOAD_DELAY": 1.0,
     }

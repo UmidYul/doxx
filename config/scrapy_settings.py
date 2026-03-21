@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from config.settings import settings as app_settings
 
-BOT_NAME = "uz_tech_scraper"
+BOT_NAME = "moscraper"
 SPIDER_MODULES = ["infrastructure.spiders"]
 NEWSPIDER_MODULE = "infrastructure.spiders"
 
@@ -18,11 +18,12 @@ AUTOTHROTTLE_TARGET_CONCURRENCY = 2.0
 ROBOTSTXT_OBEY = False
 COOKIES_ENABLED = True
 
+# Default: plain HTTP. Spiders that need JS rendering must opt in via
+# custom_settings (scrapy-playwright download handler + meta).
 ITEM_PIPELINES = {
     "infrastructure.pipelines.validate_pipeline.ValidatePipeline": 100,
     "infrastructure.pipelines.normalize_pipeline.NormalizePipeline": 200,
-    "infrastructure.pipelines.image_pipeline.ImagePipeline": 300,
-    "infrastructure.pipelines.delta_pipeline.DeltaPipeline": 400,
+    "infrastructure.pipelines.publish_pipeline.PublishPipeline": 300,
 }
 
 DOWNLOADER_MIDDLEWARES = {
@@ -33,29 +34,7 @@ DOWNLOADER_MIDDLEWARES = {
     "infrastructure.middlewares.retry_middleware.ExponentialRetryMiddleware": 900,
 }
 
-DOWNLOAD_HANDLERS = {
-    "http": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
-    "https": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
-}
-
 TWISTED_REACTOR = "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
-
-PLAYWRIGHT_LAUNCH_OPTIONS = {
-    "headless": True,
-    "args": [
-        "--disable-blink-features=AutomationControlled",
-        "--disable-dev-shm-usage",
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-infobars",
-        "--window-position=0,0",
-        "--ignore-certificate-errors",
-        "--disable-extensions",
-        "--disable-gpu",
-    ],
-}
-
-PLAYWRIGHT_DEFAULT_NAVIGATION_TIMEOUT = 30000
 
 REQUEST_FINGERPRINTER_IMPLEMENTATION = "2.7"
 
@@ -63,7 +42,6 @@ FEEDS: dict = {}
 
 
 def get_scrapy_settings_dict() -> dict[str, object]:
-    """Return all Scrapy-relevant settings as a plain dict (for tests / tooling)."""
     module_globals = globals()
     keys = (
         "BOT_NAME",
@@ -80,15 +58,11 @@ def get_scrapy_settings_dict() -> dict[str, object]:
         "COOKIES_ENABLED",
         "ITEM_PIPELINES",
         "DOWNLOADER_MIDDLEWARES",
-        "DOWNLOAD_HANDLERS",
         "TWISTED_REACTOR",
-        "PLAYWRIGHT_LAUNCH_OPTIONS",
-        "PLAYWRIGHT_DEFAULT_NAVIGATION_TIMEOUT",
         "REQUEST_FINGERPRINTER_IMPLEMENTATION",
         "FEEDS",
     )
     return {k: module_globals[k] for k in keys}
 
 
-# Backwards-compatible alias if code expects a dict named `settings`
 settings = get_scrapy_settings_dict()

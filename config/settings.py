@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import model_validator
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,45 +11,30 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Supabase
-    SUPABASE_URL: str = ""
-    SUPABASE_SERVICE_KEY: str = ""
-    SUPABASE_DB_URL: str = ""
+    APP_ENV: str = "development"
+    LOG_LEVEL: str = "INFO"
 
-    # Same database URI as SUPABASE_DB_URL — used by Alembic (env.py).
-    DATABASE_URL_SYNC: str = ""
+    BROKER_TYPE: str = "rabbitmq"
+    RABBITMQ_URL: str = "amqp://guest:guest@localhost:5672/"
+    RABBITMQ_EXCHANGE: str = "moscraper.events"
+    RABBITMQ_EXCHANGE_TYPE: str = "topic"
+    RABBITMQ_ROUTING_KEY: str = "listing.scraped.v1"
+    RABBITMQ_PUBLISH_MANDATORY: bool = True
 
-    @model_validator(mode="after")
-    def _default_database_url_sync(self) -> Settings:
-        if not (self.DATABASE_URL_SYNC or "").strip() and self.SUPABASE_DB_URL:
-            object.__setattr__(self, "DATABASE_URL_SYNC", self.SUPABASE_DB_URL)
-        return self
+    DEFAULT_CURRENCY: str = "UZS"
+    MESSAGE_SCHEMA_VERSION: int = 1
 
-    REDIS_URL: str = "redis://localhost:6379/0"
-    CELERY_BROKER_URL: str = "redis://localhost:6379/0"
-    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/1"
-
-    CRM_API_URL: str = "http://crm-service/api"
-    CRM_API_KEY: str = "secret-parser-key"
-
-    ANTHROPIC_API_KEY: str = ""
-    LLM_EXTRACTION_ENABLED: bool = False
-    LLM_CACHE_TTL_DAYS: int = 30
-
-    REMBG_CONFIDENCE_THRESHOLD: float = 0.7
-    MAX_IMAGES_PER_PRODUCT: int = 5
+    # Tests only: build messages but do not connect to RabbitMQ
+    MOSCRAPER_DISABLE_PUBLISH: bool = False
 
     PROXY_LIST_PATH: str = ""
     SENTRY_DSN: str = ""
-
-    SPEC_SCORE_THRESHOLD_STRUCTURED: float = 0.7
-    SPEC_SCORE_THRESHOLD_REGEX: float = 0.4
 
     SCRAPY_LOG_LEVEL: str = "INFO"
     SCRAPY_CONCURRENT_REQUESTS: int = 8
     SCRAPY_DOWNLOAD_DELAY: float = 1.5
 
-    STORE_NAMES: list[str] = ["mediapark", "olx", "texnomart", "makro", "uzum"]
+    STORE_NAMES: list[str] = Field(default_factory=lambda: ["mediapark"])
 
 
 settings = Settings()

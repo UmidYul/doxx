@@ -1,284 +1,33 @@
-# UZ Tech Scraper — Cursor Rules
+# Moscraper — Cursor rules
 
-## What this service is
-A sensor service. It scrapes tech product data from Uzbekistan e-commerce
-stores, normalizes it, and sends ONLY changes (deltas) to CRM via REST API.
+You are working on **Moscraper**. Read **PROJECT.md** before architectural changes.
 
-Read PROJECT.md before making any architectural decision.
-The scraper has its own lightweight DB. It never touches CRM's database.
+## Non-negotiable architecture
 
----
+1. Moscraper is **stateless** — no scraper-owned DB, parse_cache, pending_events, or local publish backlog.
+2. Moscraper only: **scrape → minimal deterministic normalization → Pydantic validation → publish to RabbitMQ**.
+3. **CRM** owns: full normalization, dedup/idempotency (`entity_key` + `payload_hash`), images, DB, retry/DLQ.
+4. **No REST** sync to CRM from this repo.
+5. Outbound messages: **CloudEvents-compatible** JSON; serialize with **orjson**; validate with **Pydantic v2**.
+6. RabbitMQ: **aio-pika**, **publisher confirms**, persistent messages, topology **compatible** with quorum queues. **Do not** declare CRM ingestion queues in scraper code or compose unless the CRM team explicitly requires it.
+7. On publish failure: **fail fast** — no local persistence (except `MOSCRAPER_DISABLE_PUBLISH` for tests).
 
-## The three laws — never break these
+## scrapy-playwright
 
-1. Scraper NEVER connects to CRM's database directly.
-   Only channel: POST /api/parser/sync via CRMClient.
+- **Optional** only. Default Scrapy settings must **not** require Playwright.
+- Use **per-spider** `custom_settings` for stores that need a browser (SPA / heavy JS).
+- Document in spider or README when Playwright is required.
 
-2. Scraper NEVER sends an event if price and in_stock did not change.
-   DeltaDetector returns [] → nothing is sent → CRM is not called.
+## No LLM in baseline pipeline
 
-3. parse_cache is updated ONLY after a successful CRM API response.
-   If CRM is down: save to pending_events, update cache later.
+- Do **not** add LLM/spec cascades to the scraping pipeline. Deterministic extractors only.
 
----
+## Files and boundaries
 
-## Architecture map
+- **Single env template:** `.env.example` only (no duplicate `env.example`).
+- Spiders extract raw structured data; heavy business logic stays out of spider methods where possible.
+- `domain/` must not import `infrastructure/` or `application/`.
 
-```
-Spider → RawProduct
-       → ValidatePipeline     (title + url present?)
-       → NormalizePipeline    (RawProduct → NormalizedProduct)
-       → ImagePipeline        (download + CLIP + rembg)
-       → DeltaPipeline        (compare with parse_cache → events)
-                                    ↓ if changed
-                              EventSender → CRM API
-                                    ↓ if CRM down
-                              pending_events (retry every 5 min)
-```
+## Deprecations
 
----
-
-## Non-negotiable rules
-
-### Architecture
-- domain/ has ZERO imports from infrastructure/ or application/
-- application/crm_client.py is the ONLY place that calls CRM API
-- infrastructure/db/ only contains parser's own tables — never CRM tables
-- Spiders only extract raw data — no business logic inside spider methods
-- DeltaDetector is the only place that compares old vs new values
-
-### Three parse modes — always implement all three
-Every spider must implement:
-- fast_parse_item(response)  — price + in_stock only, runs every 2h
-- full_parse_item(response)  — complete specs + images, runs weekly
-- discover_urls(response)    — find new URLs, runs daily
-
-### Spec extraction cascade — never skip steps
-```python
-specs = StructuredExtractor(schema).extract(raw_specs)
-if specs.completeness_score < SCORE_THRESHOLD_STRUCTURED:  # 0.7
-    specs = RegexExtractor(schema).enrich(specs, description)
-if specs.completeness_score < SCORE_THRESHOLD_REGEX:       # 0.4
-    specs = LLMExtractor(schema).enrich(specs, description)
-```
-
-### Delta detection — return [] when nothing changed
-```python
-# Most important optimization: if nothing changed, CRM is never called.
-events = delta_detector.detect(normalized, cache)
-if not events:
-    return  # do not call CRM, do not update cache
-```
-
-### Python style
-- Python 3.11+. Use X | None not Optional[X]
-- from __future__ import annotations in all files
-- Never bare except: — catch specific exceptions, always log
-- All event models use Literal for the event field discriminator
-
----
-
-## Patterns to always follow
-
-### Zero-result guard — every spider
-```python
-urls = self.discover_urls(response)
-if not urls and response.meta.get('page', 1) == 1:
-    self.logger.warning(f"[ZERO_RESULT] {response.url}")
-    return
-```
-
-### Infinite pagination guard — every spider
-```python
-next_url = self.get_next_page(response)
-if next_url and not self._is_duplicate_page(response, next_url):
-    yield scrapy.Request(next_url, ...)
-```
-
-### Unknown spec fields — log, never drop
-```python
-field = FIELD_ALIASES.get(normalize_label(label))
-if field:
-    raw[field] = value
-else:
-    raw.setdefault('_unknown_fields', {})[label] = value
-```
-
-### CRM unavailable — always use pending_events fallback
-```python
-async def send_event(event) -> bool:
-    try:
-        return await crm_client.sync_event(event)
-    except CRMUnavailableError:
-        await event_repo.save_pending(event)
-        return False
-```
-
-### parse_cache update timing — only after CRM confirms
-```python
-# CORRECT
-crm_response = await crm_client.sync_event(event)
-if crm_response and crm_response.status == "ok":
-    await cache_repo.upsert(url, price=new_price, ...)
-```
-
----
-
-## Common mistakes to avoid
-
-### Delta logic
-- NEVER send product_found for a URL already in parse_cache
-- NEVER send price_changed if abs(new - old) <= 100 UZS (use tolerance)
-- NEVER update parse_cache if CRM returned error or was unreachable
-
-### Spec extraction
-- NEVER overwrite a field filled by structured with a regex result
-- RAM > 32 GB in phone context = parsing error, log [SPEC_SANITY_SWAP]
-- Display size: always replace comma with dot before float() parse
-- Storage: handle TB to GB conversion (1 TB = 1024 GB)
-- Processor: always normalize via config/processor_aliases.json
-
-### Images
-- NEVER deduplicate by URL alone — use perceptual hash (imagehash)
-- ALWAYS check rembg_confidence > 0.7 before using background-removed image
-- Check data-src / data-lazy-src / data-original, not just src
-
-### Scrapy
-- Never block the reactor — yield not return in parse methods
-- Every Request needs errback=self.errback_default
-- DOWNLOAD_DELAY minimum 1.0 in production
-- fast_parse: work from listing page, avoid loading each product page
-
-### Network
-- 200 + body < 500 bytes = soft block → raise IgnoreRequest
-- Redirect to m.site.uz = mobile redirect → retry with desktop User-Agent
-- Never hardcode delays — use AUTOTHROTTLE_ENABLED = True
-
----
-
-## File naming
-
-| What | Where |
-|---|---|
-| New spider | infrastructure/spiders/{store}.py |
-| New spec schema | domain/specs/{category}.py |
-| New extractor | application/extractors/{name}_extractor.py |
-| New pipeline | infrastructure/pipelines/{name}_pipeline.py |
-| New middleware | infrastructure/middlewares/{name}_middleware.py |
-| Processor aliases | config/processor_aliases.json |
-| Canary entry | tests/canary/canary_products.py |
-
----
-
-## Parser's own DB — these tables only
-
-| Table | Write rule |
-|---|---|
-| {store}_products | INSERT on every scrape |
-| parse_cache | UPDATE only after CRM confirms ok |
-| parse_logs | INSERT per run |
-| parse_queue | manage lifecycle |
-| pending_events | append-only + status updates |
-
-Never touch tables that belong to CRM.
-
----
-
-## Events — when to send each
-
-| Event | Trigger |
-|---|---|
-| product_found | URL not in parse_cache |
-| price_changed | price diff > 100 UZS |
-| out_of_stock | in_stock changed to False |
-| characteristic_added | new non-null spec field discovered |
-
----
-
-## MCP tools
-
-- postgres — check parse_cache, count pending_events, inspect parse_logs
-- redis — inspect Celery queues, bloom filter keys, retry task state
-- playwright — open store URLs to find CSS selectors before writing spiders
-- filesystem — update processor_aliases.json, read debug raw_html
-
----
-
-## Adding a new store — checklist
-
-1. [ ] Open store in Playwright MCP, inspect DOM
-2. [ ] Check if JS rendering needed (view-source empty = Playwright)
-3. [ ] Find API/GraphQL calls in Network tab if SPA
-4. [ ] Create {store}_products table in migration
-5. [ ] Implement spider: fast_parse_item + full_parse_item + discover_urls
-6. [ ] Add SPEC_FIELD_MAP entries for this store's label language
-7. [ ] Add entry to CANARY_PRODUCTS
-8. [ ] Add Celery beat schedules for all 3 modes
-9. [ ] Test: scrapy crawl {store} -s CLOSESPIDER_ITEMCOUNT=5
-10. [ ] Verify parse_cache: SELECT * FROM parse_cache WHERE source_name='{store}'
-11. [ ] Verify events: SELECT * FROM pending_events ORDER BY created_at DESC LIMIT 10
-
----
-
-## Logging tags — use these for grep
-
-| Tag | When |
-|---|---|
-| [ZERO_RESULT] | Listing page returned 0 URLs |
-| [RATE_LIMIT_SUSPECTED] | Response time spike |
-| [EMPTY_BODY_200] | 200 with less than 500 bytes |
-| [SPEC_SANITY_SWAP] | RAM and storage values swapped |
-| [FUZZY_MATCH] | Spec label matched via difflib |
-| [CRM_UNAVAILABLE] | CRM down, saved to pending_events |
-| [CRM_SYNC] | Event successfully sent to CRM |
-| [LLM_EXTRACTION] | LLM fallback used |
-| [LLM_CACHE_HIT] | LLM result from cache |
-| [CANARY_FAIL] | Canary assertion failed |
-| [DELTA_EMPTY] | No changes, nothing sent |
-
-Context: Read PROJECT.md fully. Read infrastructure/spiders/base.py.
-
-Mediapark.uz is a static HTML store. It has a structured spec table
-which is the best source of characteristics.
-
-Task: Implement infrastructure/spiders/mediapark.py
-
-Requirements:
-- MediaparkSpider(BaseProductSpider), store_name = "mediapark"
-- start_category_urls: real mediapark.uz URLs for phones, laptops, TVs,
-  tablets, appliances.
-
-- discover_urls(response) → list[str]:
-    Extract all product detail URLs from a category/listing page.
-    Handle pagination via get_next_page(response).
-    Call _zero_result_guard and _infinite_pagination_guard.
-
-- fast_parse_item(response) → dict:
-    Extract ONLY: price_str, in_stock, url.
-    Price: find current price element, handle crossed-out (original) price.
-    in_stock: detect "нет в наличии" / "out of stock" patterns.
-    This must be fast — no heavy DOM traversal.
-
-- full_parse_item(response) → dict:
-    Extract: title, brand, all spec table rows, all image URLs,
-    external_id (from URL or page), price_str, in_stock.
-    SPEC_FIELD_MAP: complete mapping of all Russian spec table
-    labels on mediapark.uz → domain field names (25+ entries).
-    Unknown rows → raw['_unknown_fields'][label] = value (never drop).
-    Images: prefer full-resolution URLs, handle data-src lazy loading.
-
-- Canary: add mediapark entry to tests/canary/canary_products.py
-  with a real Samsung phone URL and assertions.
-
-Output the complete file.
-
----
-
-### Автоматическое обновление README
-
-Добавь в каждый промпт:
-После завершения работы над модулем:
-- Обнови README.md этого модуля
-- Добавь строку в таблицу истории изменений
-  с датой, описанием что сделано
-- Обнови раздел "Файлы" если добавились новые
+If you see parse_cache, delta sync, CRM HTTP client, or image persistence in the scraper — **remove**; that architecture is obsolete for this project.
