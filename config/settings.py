@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+"""Runtime configuration from environment variables and optional ``.env`` (no DB/Celery/CRM REST)."""
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    """Broker and scraping knobs. Unknown env keys are ignored (``extra="ignore"``)."""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -20,6 +24,8 @@ class Settings(BaseSettings):
     RABBITMQ_EXCHANGE_TYPE: str = "topic"
     RABBITMQ_ROUTING_KEY: str = "listing.scraped.v1"
     RABBITMQ_PUBLISH_MANDATORY: bool = True
+    # 0 = fail fast on publish errors (default). Retries/DLQ belong to CRM/broker.
+    MAX_PUBLISH_RETRIES: int = Field(default=0, ge=0)
 
     DEFAULT_CURRENCY: str = "UZS"
     MESSAGE_SCHEMA_VERSION: int = 1

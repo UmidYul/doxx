@@ -18,8 +18,12 @@ AUTOTHROTTLE_TARGET_CONCURRENCY = 2.0
 ROBOTSTXT_OBEY = False
 COOKIES_ENABLED = True
 
-# Default: plain HTTP. Spiders that need JS rendering must opt in via
-# custom_settings (scrapy-playwright download handler + meta).
+# Default: plain HTTP (no browser download handlers here). Spiders that need JS
+# (e.g. ``UzumSpider``) register the scrapy-playwright handler only in their own
+# ``custom_settings`` and use ``Request(meta={"playwright": True})``.
+# No image-download pipeline: spiders emit URLs only; CRM downloads and processes media.
+# No delta/cache pipeline: no local diff or upsert; publish after normalize (RabbitMQ).
+# Pipeline order: validate → normalize → publish (RabbitMQ).
 ITEM_PIPELINES = {
     "infrastructure.pipelines.validate_pipeline.ValidatePipeline": 100,
     "infrastructure.pipelines.normalize_pipeline.NormalizePipeline": 200,

@@ -25,20 +25,26 @@ class RabbitMQPublisher(MessagePublisher):
     async def connect(self) -> None:
         if self._exchange is not None:
             return
-        self._connection = await aio_pika.connect_robust(settings.RABBITMQ_URL)
-        self._channel = await self._connection.channel(publisher_confirms=True)
-        _map = {
-            "topic": ExchangeType.TOPIC,
-            "direct": ExchangeType.DIRECT,
-            "fanout": ExchangeType.FANOUT,
-            "headers": ExchangeType.HEADERS,
-        }
-        ex_type = _map.get(settings.RABBITMQ_EXCHANGE_TYPE.lower(), ExchangeType.TOPIC)
-        self._exchange = await self._channel.declare_exchange(
-            settings.RABBITMQ_EXCHANGE,
-            ex_type,
-            durable=True,
-        )
+        try:
+            self._connection = await aio_pika.connect_robust(settings.RABBITMQ_URL)
+            self._channel = await self._connection.channel(publisher_confirms=True)
+            _map = {
+                "topic": ExchangeType.TOPIC,
+                "direct": ExchangeType.DIRECT,
+                "fanout": ExchangeType.FANOUT,
+                "headers": ExchangeType.HEADERS,
+            }
+            ex_type = _map.get(settings.RABBITMQ_EXCHANGE_TYPE.lower(), ExchangeType.TOPIC)
+            self._exchange = await self._channel.declare_exchange(
+                settings.RABBITMQ_EXCHANGE,
+                ex_type,
+                durable=True,
+            )
+        except Exception as e:
+            logger.exception("RabbitMQ connect failed (exchange=%s)", settings.RABBITMQ_EXCHANGE)
+            raise ConnectionError(
+                "Moscraper could not connect to RabbitMQ; check RABBITMQ_URL and that the broker is running."
+            ) from e
         logger.info(
             "RabbitMQ publisher ready exchange=%s type=%s",
             settings.RABBITMQ_EXCHANGE,
@@ -55,11 +61,20 @@ class RabbitMQPublisher(MessagePublisher):
             delivery_mode=DeliveryMode.PERSISTENT,
             content_type="application/json",
         )
-        await self._exchange.publish(
-            msg,
-            routing_key=settings.RABBITMQ_ROUTING_KEY,
-            mandatory=settings.RABBITMQ_PUBLISH_MANDATORY,
-        )
+        try:
+            await self._exchange.publish(
+                msg,
+                routing_key=settings.RABBITMQ_ROUTING_KEY,
+                mandatory=settings.RABBITMQ_PUBLISH_MANDATORY,
+            )
+        except Exception:
+            logger.exception(
+                "RabbitMQ publish failed routing_key=%s entity_key=%s event_id=%s",
+                settings.RABBITMQ_ROUTING_KEY,
+                event.data.entity_key,
+                event.id,
+            )
+            raise
 
     async def close(self) -> None:
         if self._channel:

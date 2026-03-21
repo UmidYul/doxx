@@ -1,7 +1,14 @@
+# Local stack: RabbitMQ + Scrapy crawler only (no database or Redis services).
+# Usage: docker compose up --build
+# UI: http://localhost:15672 (guest/guest)
+#
+# If nothing is bound to the exchange yet, set RABBITMQ_PUBLISH_MANDATORY=false on scraper.
+
 services:
   rabbitmq:
-    image: rabbitmq:4-management
+    image: rabbitmq:3-management
     container_name: moscraper-rabbitmq
+    hostname: rabbitmq
     ports:
       - "5672:5672"
       - "15672:15672"
@@ -9,3 +16,28 @@ services:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 25s
+
+  scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: moscraper-scraper
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      BROKER_TYPE: rabbitmq
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      RABBITMQ_EXCHANGE: moscraper.events
+      RABBITMQ_EXCHANGE_TYPE: topic
+      RABBITMQ_ROUTING_KEY: listing.scraped.v1
+      RABBITMQ_PUBLISH_MANDATORY: "true"
+      MOSCRAPER_DISABLE_PUBLISH: "false"
+    # Override spider: docker compose run scraper scrapy crawl uzum
+    command: ["scrapy", "crawl", "mediapark"]

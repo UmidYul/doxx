@@ -4,13 +4,15 @@ You are working on **Moscraper**. Read **PROJECT.md** before architectural chang
 
 ## Non-negotiable architecture
 
-1. Moscraper is **stateless** — no scraper-owned DB, parse_cache, pending_events, or local publish backlog.
-2. Moscraper only: **scrape → minimal deterministic normalization → Pydantic validation → publish to RabbitMQ**.
-3. **CRM** owns: full normalization, dedup/idempotency (`entity_key` + `payload_hash`), images, DB, retry/DLQ.
-4. **No REST** sync to CRM from this repo.
-5. Outbound messages: **CloudEvents-compatible** JSON; serialize with **orjson**; validate with **Pydantic v2**.
-6. RabbitMQ: **aio-pika**, **publisher confirms**, persistent messages, topology **compatible** with quorum queues. **Do not** declare CRM ingestion queues in scraper code or compose unless the CRM team explicitly requires it.
-7. On publish failure: **fail fast** — no local persistence (except `MOSCRAPER_DISABLE_PUBLISH` for tests).
+1. Moscraper is **stateless** — no scraper-owned database, durable on-disk buffer for listings, or local publish backlog.
+2. **Queue, not storage:** business data leaves the scraper only via **RabbitMQ** as **CloudEvents**-compatible messages. Do not add SQL tables, scrape-result caches, or app-owned queues for listing payloads in this repo.
+3. Moscraper only: **scrape → minimal deterministic normalization → Pydantic validation → publish to RabbitMQ**.
+4. **CRM** owns consumption from the broker, full normalization, dedup/idempotency (`entity_key` + `payload_hash`), images, database persistence, consumer retries, and DLQ.
+5. **No REST** sync of listings to CRM from this repo.
+6. Outbound messages: **CloudEvents-compatible** JSON; serialize with **orjson**; validate with **Pydantic v2**.
+7. RabbitMQ: **aio-pika**, **publisher confirms**, persistent messages, topology **compatible** with quorum queues. **Do not** declare CRM ingestion queues in scraper code or compose unless the CRM team explicitly requires it.
+8. On publish failure: **fail fast** — no local persistence (except `MOSCRAPER_DISABLE_PUBLISH` for tests).
+9. **Scheduling** is **external** (cron, CI, K8s CronJob, etc.). Do not add Celery, in-process timers, or scraper-owned retry stores; **at-least-once** and **DLQ/retries after consume** are **CRM/broker** concerns.
 
 ## scrapy-playwright
 
@@ -30,4 +32,4 @@ You are working on **Moscraper**. Read **PROJECT.md** before architectural chang
 
 ## Deprecations
 
-If you see parse_cache, delta sync, CRM HTTP client, or image persistence in the scraper — **remove**; that architecture is obsolete for this project.
+If you see legacy scraper-owned persistence, delta sync against local crawl history, CRM HTTP clients used to push listings, or image persistence in the scraper — **remove**; that architecture is obsolete for this project.

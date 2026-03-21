@@ -6,28 +6,33 @@ alwaysApply: true
 
 # Moscraper operating model
 
-Moscraper is a **stateless** scraping **publisher**.
+Moscraper is a **stateless** scraping **publisher**: it **does not** persist listing business data in an app database or local tables.
 
-## Responsibilities
+## Flow
 
-- Scrape source websites (default: plain HTTP; **scrapy-playwright** only when a spider opts in for SPA/JS-heavy sites).
-- Extract listing fields (title, url, price string, stock, brand, `raw_specs`, description, image URLs from the page).
-- **Minimal** deterministic normalization (price, currency, booleans, light cleanup).
-- Build the CloudEvents-compatible payload and publish to RabbitMQ (aio-pika + publisher confirms).
+1. **Scraper** — fetch pages (HTTP by default; **scrapy-playwright** only when a spider opts in), extract fields (title, URL, price, stock, brand, `raw_specs`, description, image URLs).
+2. **Pipelines** — Pydantic validation, minimal deterministic normalization, then **publish** a CloudEvents-shaped message to **RabbitMQ** (aio-pika, publisher confirms).
+3. **CRM** — consumers bound to the broker **receive** those events, then **process** them: deduplication, enrichment, persistence, media, retries, and DLQ are all **CRM-side**.
+
+## Responsibilities (this repo)
+
+- Scrape and extract structured listing data.
+- Validate and lightly normalize before publish.
+- Emit one outbound event per item to the configured exchange/routing key.
 
 ## Non-responsibilities
 
-- No persistence (no DB, cache, pending queue, image files, raw HTML archive).
+- No app DB or disk-backed listing store; no image files or raw HTML archive in the scraper.
 - No LLM / semantic enrichment in the baseline pipeline.
-- No delta comparison against historical scraper state.
-- No CRM REST calls.
+- No comparison to historical state stored inside the scraper.
+- No HTTP calls from the scraper to CRM APIs to sync listings.
 
 ## Publishing
 
 - Validate with Pydantic before publish.
-- Use `listing.scraped.v1` routing to exchange `moscraper.events` (configurable via env).
-- Topology must remain **quorum-queue compatible**; **queue declaration** is a CRM/integration concern unless explicitly agreed otherwise.
+- Default routing: `listing.scraped.v1` to exchange `moscraper.events` (overridable via env).
+- Topology must stay **quorum-queue compatible**; **queue declaration** for ingestion is a CRM/integration concern unless explicitly agreed otherwise.
 
 ## Boundary
 
-Moscraper is a **producer only**. CRM owns state, ingestion, and retries.
+Moscraper is a **producer only**. **CRM** is the system of record after messages are consumed from the broker.

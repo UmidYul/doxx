@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -35,13 +36,13 @@ class ListingScrapedData(BaseModel):
 
 
 class CloudEventListingScraped(BaseModel):
-    """CloudEvents-compatible envelope for listing.scraped."""
+    """CloudEvents v1.0-compatible envelope for listing.scraped."""
 
     specversion: Literal["1.0"] = "1.0"
-    id: str
-    source: str
     type: Literal["com.moscraper.listing.scraped"] = "com.moscraper.listing.scraped"
-    time: datetime
+    source: str
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    time: datetime = Field(default_factory=lambda: datetime.now(UTC))
     datacontenttype: Literal["application/json"] = "application/json"
     subject: str = "listing"
     data: ListingScrapedData

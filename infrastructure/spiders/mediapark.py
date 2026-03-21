@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlunparse
 
 import scrapy
 
+from domain.raw_product import as_scrapy_item_dict
 from infrastructure.spiders.base import BaseProductSpider
 
 # RU labels commonly used on mediapark.uz PDP JSON → domain/schema field names
@@ -115,20 +116,27 @@ class MediaparkSpider(BaseProductSpider):
             yield scrapy.Request(url, callback=self.parse, meta={"page": 1}, errback=self.errback_default)
 
     def parse(self, response: scrapy.http.Response):
-        if self.parse_mode == "discover":
-            urls = self.discover_urls(response)
-            for url in urls:
-                yield {"discovered_url": url, "source": self.store_name}
-            next_url = self.get_next_page(response)
-            if next_url and not self._is_duplicate_page(response, next_url):
-                yield scrapy.Request(
-                    next_url,
-                    callback=self.parse,
-                    meta={**response.meta, "page": response.meta.get("page", 1) + 1},
-                    errback=self.errback_default,
-                )
+        if "/products/view/" in response.url:
+            yield from self.parse_product(response)
             return
-        yield from super().parse(response)
+        urls = self._listing_product_urls(response)
+        for url in urls:
+            yield scrapy.Request(url, callback=self.parse_product, errback=self.errback_default)
+        next_url = self.get_next_page(response)
+        if next_url and not self._is_duplicate_page(response, next_url):
+            yield scrapy.Request(
+                next_url,
+                callback=self.parse,
+                meta={**response.meta, "page": response.meta.get("page", 1) + 1},
+                errback=self.errback_default,
+            )
+
+    def parse_product(self, response: scrapy.http.Response):
+        item = self.full_parse_item(response)
+        if item:
+            item.setdefault("source", self.store_name)
+            item.setdefault("url", response.url)
+            yield as_scrapy_item_dict(item)
 
     def _is_duplicate_page(self, response: scrapy.http.Response, _next_url: str = "") -> bool:
         sample = "".join(self._extract_view_paths(response)[:12])
@@ -157,7 +165,7 @@ class MediaparkSpider(BaseProductSpider):
                 paths.append(h.split("?")[0])
         return sorted(set(paths))
 
-    def discover_urls(self, response: scrapy.http.Response) -> list[str]:
+    def _listing_product_urls(self, response: scrapy.http.Response) -> list[str]:
         urls = [response.urljoin(p) for p in self._extract_view_paths(response)]
         self._zero_result_guard(urls, response)
         return urls
@@ -175,29 +183,6 @@ class MediaparkSpider(BaseProductSpider):
         qs_clear["page"] = [str(page + 1)]
         new_query = urlencode({k: v[0] for k, v in qs_clear.items()})
         return urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", new_query, ""))
-
-    def fast_parse_item(self, response: scrapy.http.Response) -> dict[str, Any] | None:
-        if "/products/view/" not in response.url:
-            return None
-        ld = self._parse_product_ld(response)
-        if not ld:
-            return None
-        offers = ld.get("offers") or {}
-        if isinstance(offers, list):
-            offers = offers[0] if offers else {}
-        price = offers.get("price")
-        price_str = ""
-        if price is not None:
-            price_str = str(price).strip()
-        avail = str(offers.get("availability", "")).lower()
-        in_stock = "outofstock" not in avail and "discontinued" not in avail
-        if _STOCK_OUT_PATTERNS.search(response.text):
-            in_stock = False
-        return {
-            "url": response.url,
-            "price_str": price_str,
-            "in_stock": in_stock,
-        }
 
     def full_parse_item(self, response: scrapy.http.Response) -> dict[str, Any] | None:
         if "/products/view/" not in response.url:
