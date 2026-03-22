@@ -45,8 +45,12 @@ class PublishPipeline:
             logger.warning("[PUBLISH_SKIP] missing _normalized url=%s", item.get("url"))
             return item
 
-        price_f = norm.get("price")
-        price_value = int(round(price_f)) if price_f is not None else None
+        price_value = norm.get("price_value")
+        if price_value is None and norm.get("price") is not None:
+            try:
+                price_value = int(round(float(norm["price"])))
+            except (TypeError, ValueError):
+                price_value = None
 
         event = build_listing_event(
             store=norm["store"],

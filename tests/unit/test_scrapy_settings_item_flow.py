@@ -9,12 +9,12 @@ from config import scrapy_settings
 _EXPECTED_PIPELINES = {
     "infrastructure.pipelines.validate_pipeline.ValidatePipeline": 100,
     "infrastructure.pipelines.normalize_pipeline.NormalizePipeline": 200,
-    "infrastructure.pipelines.publish_pipeline.PublishPipeline": 300,
+    "infrastructure.pipelines.sync_pipeline.SyncPipeline": 300,
 }
 
 _REQUIRED_MIDDLEWARE_SUBSTRINGS = (
     "stealth_middleware.StealthMiddleware",
-    "ratelimit_middleware.AdaptiveRateLimitMiddleware",
+    "ratelimit_middleware.AccessAwareRateLimitMiddleware",
     "retry_middleware.ExponentialRetryMiddleware",
 )
 

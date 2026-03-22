@@ -1,0 +1,8 @@
+{
+  "selected_event_type": "product_found",
+  "allowed": true,
+  "fallback_applied": false,
+  "fallback_reason": null,
+  "required_ids": [],
+  "notes": []
+}

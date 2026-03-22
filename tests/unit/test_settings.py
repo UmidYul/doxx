@@ -44,8 +44,23 @@ def test_settings_instantiates_with_env_example_pairs(monkeypatch: pytest.Monkey
     assert s.RABBITMQ_EXCHANGE == "moscraper.events"
     assert s.BROKER_TYPE == "rabbitmq"
     assert s.MAX_PUBLISH_RETRIES == 0
+    assert s.TRANSPORT_TYPE == "crm_http"
+    assert s.CRM_SYNC_ENDPOINT == "/api/parser/sync"
+    assert s.CRM_BATCH_SIZE == 50
 
 
 def test_max_publish_retries_must_be_non_negative():
     with pytest.raises(ValidationError):
         Settings(MAX_PUBLISH_RETRIES=-1, _env_file=None)
+
+
+def test_crm_batch_size_max_100():
+    with pytest.raises(ValidationError):
+        Settings(CRM_BATCH_SIZE=101, _env_file=None)
+
+
+def test_transport_type_field_exists():
+    fields = set(Settings.model_fields)
+    assert "TRANSPORT_TYPE" in fields
+    assert "CRM_BASE_URL" in fields
+    assert "CRM_PARSER_KEY" in fields

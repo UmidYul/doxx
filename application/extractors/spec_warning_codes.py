@@ -1,0 +1,22 @@
+"""Standard machine-readable codes for normalization warnings and suppressions."""
+
+AMBIGUOUS_ALIAS = "ambiguous_alias"
+DEPRECATED_ALIAS = "deprecated_alias"
+IMPLAUSIBLE_VALUE = "implausible_value"
+CONFLICTING_VALUES = "conflicting_values"
+CORRECTED_VALUE = "corrected_value"
+MISSING_UNIT = "missing_unit"
+CATEGORY_MISMATCH = "category_mismatch"
+LOW_CONFIDENCE = "low_confidence"
+SUPPRESSED_BY_CONFIDENCE = "suppressed_by_confidence"
+SUPPRESSED_BY_CONFLICT = "suppressed_by_conflict"
+SUPPRESSED_BY_PLAUSIBILITY = "suppressed_by_plausibility"
+CROSS_FIELD_CONFLICT = "cross_field_conflict"
+RAM_STORAGE_SWAP_SUSPECTED = "ram_storage_swap_suspected"
+INCONSISTENT_WEIGHT_UNITS = "inconsistent_weight_units"
+INCONSISTENT_HDMI_STATE = "inconsistent_hdmi_state"
+
+# Operational / mapping (not in core confidence set but stable)
+UNMAPPED_LABEL = "unmapped_label"
+FIELD_DISABLED_BY_STORE_OVERRIDE = "field_disabled_by_store_override"
+LOW_MAPPING_COVERAGE = "low_mapping_coverage"

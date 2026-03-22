@@ -40,7 +40,7 @@ def build_payload_hash(
     store: str,
     url: str,
     title: str,
-    scraped_at: datetime,
+    scraped_at: datetime | None = None,
     source_id: str | None,
     price_raw: str | None,
     price_value: int | None,
@@ -51,13 +51,17 @@ def build_payload_hash(
     description: str | None,
     image_urls: list[str],
 ) -> str:
-    """SHA-256 over normalized business fields (no entity_key / payload_hash)."""
+    """SHA-256 over business-only fields.
+
+    ``scraped_at`` is accepted for backward compatibility but intentionally
+    excluded from the hash so that re-scraping the same product with identical
+    business data produces the same hash regardless of timing.
+    """
     blob = {
         "schema_version": schema_version,
         "store": store,
         "url": _canonical_url(url),
         "title": _light_title(title),
-        "scraped_at": _iso_z(scraped_at),
         "source_id": source_id if source_id else None,
         "price_raw": price_raw,
         "price_value": price_value,

@@ -17,6 +17,7 @@ class RawProduct(BaseModel):
     raw_specs: dict = Field(default_factory=dict)
     image_urls: list[str] = Field(default_factory=list)
     description: str = ""
+    category_hint: str | None = None
 
     model_config = {"str_strip_whitespace": True}
 
@@ -26,8 +27,9 @@ def as_scrapy_item_dict(extracted: dict[str, Any]) -> dict[str, Any]:
     if "source" not in extracted or "url" not in extracted:
         raise ValueError("extracted must include 'source' and 'url' before normalization")
     raw_specs = dict(extracted.get("raw_specs") or {})
-    if extracted.get("category"):
-        raw_specs["_category_hint"] = str(extracted["category"])
+    raw_specs.pop("_category_hint", None)
+    cat_hint = extracted.get("category_hint") or extracted.get("category")
+    cat_hint = str(cat_hint).strip() if cat_hint else None
     rp = RawProduct(
         source=str(extracted["source"]),
         url=str(extracted["url"]),
@@ -38,5 +40,6 @@ def as_scrapy_item_dict(extracted: dict[str, Any]) -> dict[str, Any]:
         raw_specs=raw_specs,
         image_urls=[str(u).strip() for u in (extracted.get("image_urls") or []) if u],
         description=str(extracted.get("description") or ""),
+        category_hint=cat_hint,
     )
     return rp.model_dump()

@@ -33,6 +33,14 @@ def test_uzum_start_request_uses_playwright_meta():
     from infrastructure.spiders.uzum import UzumSpider
 
     spider = UzumSpider()
+
+    class _S:
+        def get(self, key, default=None):
+            if key == "DOWNLOAD_HANDLERS":
+                return UzumSpider.custom_settings.get("DOWNLOAD_HANDLERS")
+            return default
+
+    spider.settings = _S()
     reqs = list(spider.start_requests())
     assert len(reqs) == 1
     assert reqs[0].meta.get("playwright") is True

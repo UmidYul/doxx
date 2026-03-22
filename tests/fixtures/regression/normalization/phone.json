@@ -1,0 +1,19 @@
+{
+  "category": "phone",
+  "raw_item": {
+    "source": "mediapark",
+    "url": "https://mediapark.uz/p/reg-phone-1",
+    "title": "Смартфон Samsung Galaxy",
+    "source_id": "reg-phone-1",
+    "price_str": "1000 сум",
+    "in_stock": true,
+    "brand": "Samsung",
+    "raw_specs": {
+      "оперативная память": "8 GB",
+      "встроенная память": "128 GB"
+    },
+    "image_urls": []
+  },
+  "min_mapping_ratio": 0.2,
+  "expect_typed_keys": ["ram_gb", "storage_gb"]
+}

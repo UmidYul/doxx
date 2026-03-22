@@ -1,0 +1,14 @@
+{
+  "schema": "parser_etl_status_v3",
+  "run_id": "baseline",
+  "current_status": "healthy",
+  "counters_summary": {},
+  "dashboard_summary": {},
+  "operator_support": {},
+  "triage_summary": {},
+  "recommended_operator_action": null,
+  "runbook_domain": null,
+  "runbook_plan": null,
+  "diagnostic_snapshot": {},
+  "operator_headline": null
+}

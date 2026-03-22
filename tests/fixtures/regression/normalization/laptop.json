@@ -1,0 +1,20 @@
+{
+  "category": "laptop",
+  "raw_item": {
+    "source": "mediapark",
+    "url": "https://mediapark.uz/p/reg-laptop-1",
+    "title": "Ноутбук TestBook Pro",
+    "source_id": "reg-laptop-1",
+    "price_str": "5000000 сум",
+    "in_stock": true,
+    "brand": "TestBook",
+    "category_hint": "laptop",
+    "raw_specs": {
+      "оперативная память": "16 GB",
+      "объем накопителя": "512 GB"
+    },
+    "image_urls": []
+  },
+  "min_mapping_ratio": 0.15,
+  "expect_typed_keys": ["ram_gb"]
+}

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from typing import Any
@@ -8,7 +7,6 @@ from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlunparse
 
 import scrapy
 
-from domain.raw_product import as_scrapy_item_dict
 from infrastructure.spiders.base import BaseProductSpider
 
 # RU labels commonly used on mediapark.uz PDP JSON → domain/schema field names
@@ -97,57 +95,41 @@ class MediaparkSpider(BaseProductSpider):
     store_name = "mediapark"
     allowed_domains = ["mediapark.uz"]
 
-    start_category_urls: tuple[str, ...] = (
-        "https://mediapark.uz/products/category/telefony-17/smartfony-40",
-        "https://mediapark.uz/products/category/noutbuki-i-ultrabuki-22/noutbuki-313",
-        "https://mediapark.uz/products/category/televizory-i-smart-televizory-8/televizory-307",
-        "https://mediapark.uz/products/category/planshety-21/planshety-na-android-78",
-        "https://mediapark.uz/products/category/vse-holodilniki-892/holodilniki-62",
-        "https://mediapark.uz/products/category/stiralnye-i-sushilnye-mashiny-735/stiralnye-mashiny-70",
-    )
-
     custom_settings = {
         **BaseProductSpider.custom_settings,
         "DOWNLOAD_DELAY": 1.0,
     }
 
-    def start_requests(self):
-        for url in self.start_category_urls:
-            yield scrapy.Request(url, callback=self.parse, meta={"page": 1}, errback=self.errback_default)
+    def start_category_urls(self) -> tuple[str, ...]:
+        return (
+            "https://mediapark.uz/products/category/telefony-17/smartfony-40",
+            "https://mediapark.uz/products/category/noutbuki-i-ultrabuki-22/noutbuki-313",
+            "https://mediapark.uz/products/category/televizory-i-smart-televizory-8/televizory-307",
+            "https://mediapark.uz/products/category/planshety-21/planshety-na-android-78",
+            "https://mediapark.uz/products/category/vse-holodilniki-892/holodilniki-62",
+            "https://mediapark.uz/products/category/stiralnye-i-sushilnye-mashiny-735/stiralnye-mashiny-70",
+        )
 
-    def parse(self, response: scrapy.http.Response):
-        if "/products/view/" in response.url:
-            yield from self.parse_product(response)
-            return
-        urls = self._listing_product_urls(response)
-        for url in urls:
-            yield scrapy.Request(url, callback=self.parse_product, errback=self.errback_default)
-        next_url = self.get_next_page(response)
-        if next_url and not self._is_duplicate_page(response, next_url):
-            yield scrapy.Request(
-                next_url,
-                callback=self.parse,
-                meta={**response.meta, "page": response.meta.get("page", 1) + 1},
-                errback=self.errback_default,
-            )
+    def is_product_page(self, response: scrapy.http.Response) -> bool:
+        return "/products/view/" in response.url
 
-    def parse_product(self, response: scrapy.http.Response):
-        item = self.full_parse_item(response)
-        if item:
-            item.setdefault("source", self.store_name)
-            item.setdefault("url", response.url)
-            yield as_scrapy_item_dict(item)
+    def extract_listing_product_urls(self, response: scrapy.http.Response) -> list[str]:
+        return [response.urljoin(p) for p in self._extract_view_paths(response)]
 
-    def _is_duplicate_page(self, response: scrapy.http.Response, _next_url: str = "") -> bool:
-        sample = "".join(self._extract_view_paths(response)[:12])
-        page_hash = hashlib.md5(sample.encode()).hexdigest()
-        if not hasattr(self, "_seen_page_hashes"):
-            self._seen_page_hashes = set()
-        if page_hash in self._seen_page_hashes:
-            self.logger.warning("[DUPLICATE_PAGE] %s hash=%s", response.url, page_hash)
-            return True
-        self._seen_page_hashes.add(page_hash)
-        return False
+    def extract_next_page_url(self, response: scrapy.http.Response) -> str | None:
+        return self.get_next_page(response)
+
+    def extract_source_id_from_url(self, url: str) -> str | None:
+        sid = self._extract_external_id(url)
+        return sid or None
+
+    def extract_category_hint(
+        self,
+        response_or_url: scrapy.http.Response | str,
+        title: str | None = None,
+    ) -> str | None:
+        u = response_or_url.url if hasattr(response_or_url, "url") else str(response_or_url)
+        return self._category_hint_for_url(u, (title or "").strip())
 
     @staticmethod
     def _extract_view_paths(response: scrapy.http.Response) -> list[str]:
@@ -164,11 +146,6 @@ class MediaparkSpider(BaseProductSpider):
             if _VIEW_PATH_RE.search(h):
                 paths.append(h.split("?")[0])
         return sorted(set(paths))
-
-    def _listing_product_urls(self, response: scrapy.http.Response) -> list[str]:
-        urls = [response.urljoin(p) for p in self._extract_view_paths(response)]
-        self._zero_result_guard(urls, response)
-        return urls
 
     def get_next_page(self, response: scrapy.http.Response) -> str | None:
         paths = self._extract_view_paths(response)
@@ -229,7 +206,7 @@ class MediaparkSpider(BaseProductSpider):
                 merged.append(u)
         image_urls = merged
 
-        category = self._category_hint(response.url, title)
+        category_hint = self._category_hint_for_url(response.url, title)
 
         return {
             "url": response.url,
@@ -243,10 +220,10 @@ class MediaparkSpider(BaseProductSpider):
             "raw_specs": raw_specs,
             "image_urls": image_urls,
             "description": str(ld.get("description") or ""),
-            "category": category,
+            "category_hint": category_hint,
         }
 
-    def _category_hint(self, url: str, title: str) -> str | None:
+    def _category_hint_for_url(self, url: str, title: str) -> str | None:
         u = url.lower()
         t = title.lower()
         if "noutbuk" in u or "ultrabuk" in u or "ноутбук" in t or "ультрабук" in t:

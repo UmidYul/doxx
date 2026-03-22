@@ -1,0 +1,23 @@
+{
+  "items": [
+    {
+      "event_id": "00000000-0000-4000-8000-000000000099",
+      "entity_key": "mediapark:fixture",
+      "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "success": true,
+      "status": "applied",
+      "http_status": 200,
+      "action": "upsert",
+      "crm_listing_id": "L1",
+      "crm_product_id": "P1",
+      "retryable": false,
+      "error_code": null,
+      "error_message": null,
+      "parser_reconciliation_signal": null
+    }
+  ],
+  "transport_ok": true,
+  "http_status": 200,
+  "batch_error_code": null,
+  "batch_error_message": null
+}

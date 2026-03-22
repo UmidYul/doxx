@@ -1,0 +1,19 @@
+{
+  "category": "tv",
+  "raw_item": {
+    "source": "mediapark",
+    "url": "https://mediapark.uz/p/reg-tv-1",
+    "title": "Телевизор TestTV 55",
+    "source_id": "reg-tv-1",
+    "price_str": "8000000 сум",
+    "in_stock": true,
+    "brand": "TestTV",
+    "category_hint": "tv",
+    "raw_specs": {
+      "диагональ": "55\""
+    },
+    "image_urls": []
+  },
+  "min_mapping_ratio": 0.1,
+  "expect_typed_keys": []
+}

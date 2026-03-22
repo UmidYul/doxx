@@ -646,6 +646,35 @@ def normalize_resolution(raw: str | None) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Plausibility (typed partial layer — keep ranges conservative)
+# ---------------------------------------------------------------------------
+
+
+def is_plausible_ram_gb(value: int) -> bool:
+    return 1 <= int(value) <= 128
+
+
+def is_plausible_storage_gb(value: int) -> bool:
+    return 1 <= int(value) <= 8192
+
+
+def is_plausible_display_size(value: float) -> bool:
+    return 1.0 <= float(value) <= 100.0
+
+
+def is_plausible_battery_mah(value: int) -> bool:
+    return 500 <= int(value) <= 20000
+
+
+def is_plausible_weight_g(value: int) -> bool:
+    return 50 <= int(value) <= 100_000
+
+
+def is_plausible_weight_kg(value: float) -> bool:
+    return 0.05 <= float(value) <= 80.0
+
+
+# ---------------------------------------------------------------------------
 # Generic int extraction
 # ---------------------------------------------------------------------------
 

@@ -21,7 +21,7 @@ def _sample_item() -> dict:
             "title": "Phone",
             "source_id": "1",
             "price_raw": "10 сум",
-            "price": 10.0,
+            "price_value": 10,
             "currency": "UZS",
             "in_stock": True,
             "brand": None,

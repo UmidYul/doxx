@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from config.settings import settings as app_settings
+from infrastructure.access.proxy_policy import should_install_rotating_proxy_middleware
 
 BOT_NAME = "moscraper"
 SPIDER_MODULES = ["infrastructure.spiders"]
@@ -18,25 +19,28 @@ AUTOTHROTTLE_TARGET_CONCURRENCY = 2.0
 ROBOTSTXT_OBEY = False
 COOKIES_ENABLED = True
 
-# Default: plain HTTP (no browser download handlers here). Spiders that need JS
-# (e.g. ``UzumSpider``) register the scrapy-playwright handler only in their own
-# ``custom_settings`` and use ``Request(meta={"playwright": True})``.
-# No image-download pipeline: spiders emit URLs only; CRM downloads and processes media.
-# No delta/cache pipeline: no local diff or upsert; publish after normalize (RabbitMQ).
-# Pipeline order: validate → normalize → publish (RabbitMQ).
+# Default: plain HTTP. Browser download handlers live in spider ``custom_settings`` only.
+# Rotating proxies: opt-in via SCRAPY_ROTATING_PROXY_ENABLED + valid PROXY_LIST_PATH (2B).
 ITEM_PIPELINES = {
     "infrastructure.pipelines.validate_pipeline.ValidatePipeline": 100,
     "infrastructure.pipelines.normalize_pipeline.NormalizePipeline": 200,
-    "infrastructure.pipelines.publish_pipeline.PublishPipeline": 300,
+    "infrastructure.pipelines.sync_pipeline.SyncPipeline": 300,
 }
 
-DOWNLOADER_MIDDLEWARES = {
+_USE_ROTATING = should_install_rotating_proxy_middleware(app_settings)
+ROTATING_PROXY_LIST_PATH = (
+    app_settings.PROXY_LIST_PATH.strip() if _USE_ROTATING and app_settings.PROXY_LIST_PATH else None
+)
+
+DOWNLOADER_MIDDLEWARES: dict[str, int] = {
     "infrastructure.middlewares.stealth_middleware.StealthMiddleware": 400,
-    "rotating_proxies.middlewares.RotatingProxyMiddleware": 610,
-    "infrastructure.middlewares.ratelimit_middleware.AdaptiveRateLimitMiddleware": 700,
+    "infrastructure.middlewares.ratelimit_middleware.AccessAwareRateLimitMiddleware": 700,
     "infrastructure.middlewares.mobile_redirect_middleware.MobileRedirectMiddleware": 800,
     "infrastructure.middlewares.retry_middleware.ExponentialRetryMiddleware": 900,
 }
+if _USE_ROTATING:
+    DOWNLOADER_MIDDLEWARES["rotating_proxies.middlewares.RotatingProxyMiddleware"] = 610
+    DOWNLOADER_MIDDLEWARES["rotating_proxies.middlewares.BanDetectionMiddleware"] = 620
 
 TWISTED_REACTOR = "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
 
@@ -65,6 +69,7 @@ def get_scrapy_settings_dict() -> dict[str, object]:
         "TWISTED_REACTOR",
         "REQUEST_FINGERPRINTER_IMPLEMENTATION",
         "FEEDS",
+        "ROTATING_PROXY_LIST_PATH",
     )
     return {k: module_globals[k] for k in keys}
 

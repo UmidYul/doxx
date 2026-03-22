@@ -1,0 +1,432 @@
+---
+description: Архитектура проекта — модули, слои, правила разработки
+globs: ["src/**/*.ts", "src/**/*.tsx", "src/**/*.js"]
+alwaysApply: true
+---
+
+# Архитектура проекта
+
+## Технологический стек
+
+```
+Веб (сайт + CRM):   Next.js + TypeScript
+Мобайл:             Expo (React Native)
+Десктоп:            Tauri (тот же Next.js внутри)
+База данных:        Supabase (PostgreSQL + Auth + Storage + RLS)
+UI компоненты:      shadcn/ui + Tailwind CSS
+Формы:              react-hook-form + zod
+Серверный стейт:    @tanstack/react-query
+Импорт файлов:      xlsx + papaparse
+Сканирование:       expo-barcode-scanner + expo-camera
+Иконки:             lucide-react
+Монорепо:           Turborepo
+IDE:                Cursor
+```
+
+---
+
+## Структура проекта
+
+```
+src/
+├── modules/        ← бизнес-логика по доменам
+├── shared/         ← общий код для всех модулей
+├── core/           ← техническая инфраструктура
+└── main/           ← точка входа приложения
+```
+
+---
+
+## Структура каждого модуля
+
+Каждый модуль состоит ровно из четырёх слоёв.
+Это правило без исключений.
+
+```
+modules/
+└── [название]/
+    ├── model/      ← сущности и типы
+    ├── service/    ← бизнес-логика
+    ├── api/        ← роуты и контроллеры
+    └── db/         ← работа с базой данных
+```
+
+### model/ — что хранить
+
+Только сущности, типы, enum, интерфейсы домена.
+
+```
+Можно:    Entity, DTO типы, enum статусов, бизнес-схемы
+Нельзя:   SQL запросы, HTTP запросы, контроллеры
+```
+
+### service/ — бизнес-логика
+
+Только сценарии использования, правила, расчёты.
+
+```
+Можно:    use cases, бизнес-правила, orchestration, расчёты
+Нельзя:   raw SQL, HTTP роуты, прямые вызовы к БД без repository
+```
+
+### api/ — внешний вход
+
+Только то что взаимодействует с внешним миром.
+
+```
+Можно:    routes, controllers, validators, request/response DTO
+Нельзя:   бизнес-логика, прямые запросы к БД
+```
+
+### db/ — доступ к данным
+
+Только работа с базой данных.
+
+```
+Можно:    ORM схемы, repository, queries, migrations
+Нельзя:   бизнес-логика, HTTP обработчики
+```
+
+---
+
+## Лимиты размера файлов
+
+```
+controller:   до 300 строк
+service:      до 400 строк
+db-файл:      до 300 строк
+```
+
+Если файл вырастает больше — делить на подфайлы внутри слоя.
+
+---
+
+## Полная модульная структура
+
+```
+src/
+├── modules/
+│   │
+│   ├── auth/               ← авторизация и аутентификация
+│   │   ├── model/          → токены, роли, сессии
+│   │   ├── service/        → логин, логаут, refresh, роли
+│   │   ├── api/            → /auth/* эндпоинты
+│   │   └── db/
+│   │
+│   ├── users/              ← пользователи системы
+│   │   ├── model/          → профили продавцов и сотрудников
+│   │   ├── service/        → управление пользователями
+│   │   ├── api/
+│   │   └── db/
+│   │
+│   ├── stores/             ← магазины продавцов
+│   │   ├── model/          → карточка магазина, локации, рейтинг
+│   │   ├── service/        → управление магазином
+│   │   ├── api/
+│   │   └── db/
+│   │
+│   ├── suppliers/          ← поставщики (единый модуль)
+│   │   ├── model/          → карточка, контакты, договоры
+│   │   ├── service/
+│   │   ├── api/
+│   │   └── db/
+│   │
+│   ├── customers/          ← клиенты
+│   │   ├── model/          → карточка, сегменты, история
+│   │   ├── service/
+│   │   ├── api/
+│   │   └── db/
+│   │
+│   ├── catalog/            ← ГЛАВНЫЙ МОДУЛЬ — единый каталог товаров
+│   │   ├── model/          → Product (name, characteristics JSON,
+│   │   │                      external_ids JSON, brand_id,
+│   │   │                      category_id, source, verified)
+│   │   ├── service/        → поиск по external_ids, нечёткий поиск,
+│   │   │                      дедупликация, обогащение через Icecat
+│   │   ├── api/
+│   │   └── db/
+│   │
+│   ├── categories/         ← дерево категорий каталога
+│   │   ├── model/          → Category, CategoryAttribute
+│   │   ├── service/
+│   │   ├── api/
+│   │   └── db/
+│   │
+│   ├── normalization/      ← нормализация данных продавцов
+│   │   ├── model/          → NormalizationRule, BrandAlias,
+│   │   │                      CategoryMapping, MappingTable
+│   │   ├── service/        → правила замены, маппинг брендов,
+│   │   │                      маппинг категорий
+│   │   ├── api/            → управление правилами вручную
+│   │   └── db/
+│   │
+│   ├── import/             ← Smart Import товаров продавца
+│   │   ├── model/          → ImportJob, ImportPreviewItem
+│   │   │                      (статусы: matched/uncertain/not_found)
+│   │   ├── service/        → парсинг CSV/Excel, сканирование,
+│   │   │                      формирование превью, подтверждение
+│   │   ├── api/            → POST /preview, POST /confirm,
+│   │   │                      GET /jobs
+│   │   └── db/
+│   │
+│   ├── seller_listings/    ← предложения продавцов платформы
+│   │   ├── model/          → SellerListing (catalog_id, store_id,
+│   │   │                      price, quantity, in_stock, condition,
+│   │   │                      delivery_info, warranty, is_active)
+│   │   ├── service/        → агрегация предложений, сортировка,
+│   │   │                      фильтрация активных
+│   │   ├── api/            → CRUD для CRM, GET /by-product для сайта
+│   │   └── db/
+│   │
+│   ├── parsed_listings/    ← цены конкурентов от парсера
+│   │   ├── model/          → ParsedListing (catalog_id, source_name,
+│   │   │                      source_url, external_id, price,
+│   │   │                      in_stock, parsed_at, raw_data JSON)
+│   │   │                   → PriceHistory (parsed_listing_id,
+│   │   │                      price, in_stock, recorded_at)
+│   │   ├── service/        → приём событий от парсера,
+│   │   │                      сопоставление с catalog,
+│   │   │                      запись истории цен
+│   │   ├── api/            → POST /sync (для парсера, закрыт ключом),
+│   │   │                      POST /sync/batch,
+│   │   │                      GET /catalog/find,
+│   │   │                      GET /by-product (для сайта),
+│   │   │                      GET /price-history
+│   │   └── db/
+│   │
+│   ├── etl/                ← оркестрация синхронизации с парсером
+│   │   ├── model/          → ETLJob, ETLLog, SyncStatus
+│   │   ├── service/        → extract / transform / load пайплайн
+│   │   ├── api/            → GET /status (дашборд статусов)
+│   │   └── db/
+│   │
+│   ├── inventory/          ← склад и остатки
+│   │   ├── model/          → остатки, движения, списания, резервы
+│   │   ├── service/
+│   │   ├── api/
+│   │   └── db/
+│   │
+│   ├── procurement/        ← закупки (ссылается на suppliers/)
+│   │   ├── model/          → заказы поставщикам, приёмка, партии
+│   │   ├── service/
+│   │   ├── api/
+│   │   └── db/
+│   │
+│   ├── pipeline/           ← CRM воронка продаж
+│   │   ├── model/          → лиды, сделки, стадии, прогнозы
+│   │   ├── service/
+│   │   ├── api/
+│   │   └── db/
+│   │
+│   ├── sales/              ← продажи (факт)
+│   │   ├── model/          → заказы, инвойсы, отгрузки, статусы
+│   │   ├── service/
+│   │   ├── api/
+│   │   └── db/
+│   │
+│   ├── tasks/              ← задачи и активности менеджеров
+│   │   ├── model/          → задачи, напоминания, календарь
+│   │   ├── service/
+│   │   ├── api/
+│   │   └── db/
+│   │
+│   ├── returns/            ← возвраты
+│   │   ├── model/          → заявки, рефанды, причины
+│   │   ├── service/
+│   │   ├── api/
+│   │   └── db/
+│   │
+│   ├── pricing/            ← ценообразование
+│   │   ├── model/          → правила цен, скидки, акции, промо
+│   │   ├── service/
+│   │   ├── api/
+│   │   └── db/
+│   │
+│   ├── finance/            ← финансовый контур
+│   │   ├── model/          → доходы, расходы, P&L, бюджеты
+│   │   ├── service/
+│   │   ├── api/
+│   │   └── db/
+│   │
+│   ├── payments/           ← оплаты и транзакции
+│   │   ├── model/          → транзакции, методы, reconciliation
+│   │   ├── service/
+│   │   ├── api/
+│   │   └── db/
+│   │
+│   ├── analytics/          ← аналитика (только чтение)
+│   │   ├── model/          → отчёты, дашборды, KPI
+│   │   ├── service/        → агрегации, экспорт
+│   │   ├── api/
+│   │   └── db/
+│   │
+│   ├── affiliates/         ← партнёрская программа
+│   │   ├── model/          → партнёры, комиссии, выплаты
+│   │   ├── service/
+│   │   ├── api/
+│   │   └── db/
+│   │
+│   ├── notifications/      ← уведомления
+│   │   ├── model/          → шаблоны, правила, очередь
+│   │   ├── service/        → email, sms, push
+│   │   ├── api/
+│   │   └── db/
+│   │
+│   ├── integrations/       ← внешние интеграции
+│   │   ├── model/          → адаптеры, webhooks, провайдеры
+│   │   ├── service/
+│   │   ├── api/
+│   │   └── db/
+│   │
+│   ├── files/              ← файлы и документы
+│   │   ├── model/          → документы, медиа, фото товаров
+│   │   ├── service/        → Supabase Storage, сжатие фото
+│   │   ├── api/
+│   │   └── db/
+│   │
+│   ├── settings/           ← настройки системы
+│   │   ├── model/          → системные параметры, локализация,
+│   │   │                      шаблоны, feature-flags
+│   │   ├── service/
+│   │   ├── api/
+│   │   └── db/
+│   │
+│   └── audit/              ← журнал действий
+│       ├── model/          → логи событий, история изменений
+│       ├── service/
+│       ├── api/
+│       └── db/
+│
+├── shared/                 ← общий код для всех модулей
+│   ├── kernel/             → базовые абстракции, base entity,
+│   │                          pagination, result types
+│   ├── errors/             → domain errors, validation errors,
+│   │                          http error mapping
+│   ├── utils/              → небольшие универсальные утилиты
+│   └── types/              → общие типы которые шарятся между модулями
+│
+├── core/                   ← техническая инфраструктура
+│   ├── config/             → конфигурация приложения
+│   ├── database/           → подключение к Supabase / PostgreSQL
+│   ├── security/           → JWT, хэши, guards, middleware
+│   │                          (НЕ бизнес-логика auth — это в modules/auth)
+│   ├── cache/              → Redis / in-memory кэш
+│   ├── queue/              → фоновые задачи, очереди
+│   └── logging/            → логгер, request logging, трассировка
+│
+└── main/                   ← точка входа
+    ├── bootstrap/          → запуск приложения
+    ├── middleware/         → глобальные middleware
+    └── routes/             → глобальная сборка маршрутов
+```
+
+---
+
+## Правила границ между модулями
+
+### Что нельзя делать
+
+```
+❌ sales не хранит логику остатков
+   → sales вызывает inventory
+
+❌ procurement не дублирует поставщиков
+   → procurement ссылается на suppliers
+
+❌ payments не считает прибыль
+   → это зона finance
+
+❌ analytics не создаёт транзакции
+   → analytics только читает и агрегирует
+
+❌ notifications не принимает бизнес-решения
+   → notifications только отправляет события
+
+❌ modules/auth не содержит JWT и guards
+   → JWT и guards живут в core/security
+```
+
+### Как модули общаются между собой
+
+```
+Правильно:   модуль A вызывает service модуля B
+Неправильно: модуль A лезет напрямую в db модуля B
+```
+
+---
+
+## Приоритет разработки — волны
+
+### Волна 1 — MVP (запуск агрегатора)
+
+```
+auth, users, stores, catalog, categories,
+normalization, import, seller_listings,
+parsed_listings, etl, files
+```
+
+Цель: продавцы загружают товары → покупатели видят их на сайте.
+
+### Волна 2 — Управление
+
+```
+inventory, pricing, analytics,
+pipeline, tasks, notifications (базовые)
+```
+
+### Волна 3 — Продажи
+
+```
+sales, payments, returns, finance,
+procurement, suppliers, affiliates, audit
+```
+
+### Волна 4 — Расширение
+
+```
+integrations, settings (полные),
+notifications (полные)
+```
+
+---
+
+## Безопасность — обязательные правила
+
+```
+1. RLS (Row Level Security) включён на всех таблицах продавцов
+   Продавец видит только свои данные — защита на уровне БД
+
+2. Эндпоинты парсера закрыты отдельным ключом X-Parser-Key
+   Обычные пользователи не имеют к ним доступа
+
+3. Каждый API эндпоинт проверяет права текущего пользователя
+   Никогда не доверять только фронтенду
+
+4. Все секреты только через переменные окружения
+   Никогда не хардкодить ключи в коде
+
+5. Новые товары создаются с verified: false
+   Показываются на сайте только после проверки модератором
+```
+
+---
+
+## Библиотеки — волна 1
+
+```
+@supabase/supabase-js          → клиент Supabase
+@supabase/auth-helpers-nextjs  → middleware авторизации
+shadcn/ui                      → UI компоненты
+react-hook-form                → управление формами
+zod                            → валидация схем
+@hookform/resolvers            → связка zod + react-hook-form
+@tanstack/react-query          → серверный стейт и кэш
+xlsx                           → чтение Excel файлов
+papaparse                      → парсинг CSV
+react-dropzone                 → загрузка файлов
+expo-barcode-scanner           → сканирование штрихкодов
+expo-camera                    → камера телефона
+sonner                         → toast уведомления
+lucide-react                   → иконки
+zustand                        → глобальный стейт
+```

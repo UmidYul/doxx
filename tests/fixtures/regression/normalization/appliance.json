@@ -1,0 +1,19 @@
+{
+  "category": "appliance",
+  "raw_item": {
+    "source": "mediapark",
+    "url": "https://mediapark.uz/p/reg-fridge-1",
+    "title": "Холодильник TestCool 300L",
+    "source_id": "reg-fridge-1",
+    "price_str": "12000000 сум",
+    "in_stock": true,
+    "brand": "TestCool",
+    "category_hint": "appliance",
+    "raw_specs": {
+      "общий объем": "300 л"
+    },
+    "image_urls": []
+  },
+  "min_mapping_ratio": 0.05,
+  "expect_typed_keys": []
+}

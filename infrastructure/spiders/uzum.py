@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import scrapy
+import scrapy.http
 
 from infrastructure.spiders.base import BaseProductSpider
 
@@ -12,7 +12,8 @@ _PLAYWRIGHT_HANDLER = "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler
 class UzumSpider(BaseProductSpider):
     """UZUM marketplace (heavy JS). **Opt-in browser:** install ``pip install '.[playwright]'`` then ``playwright install``.
 
-    Only this spider registers ``scrapy-playwright`` download handlers; all other spiders use plain TCP/HTTP.
+    Listing → PDP extraction is **TBD**; this spider uses the shared crawl framework and seeds the homepage
+    so the contract stays consistent across stores.
     """
 
     name = "uzum"
@@ -31,17 +32,20 @@ class UzumSpider(BaseProductSpider):
         "DOWNLOAD_DELAY": 1.0,
     }
 
-    def start_requests(self):
-        yield scrapy.Request(
-            "https://uzum.uz/",
-            callback=self.parse,
-            meta={"playwright": True},
-            errback=self.errback_default,
-        )
+    def start_category_urls(self) -> tuple[str, ...]:
+        return ("https://uzum.uz/",)
 
-    def parse(self, response: scrapy.http.Response):
-        self.logger.info("[UZUM] Playwright fetch ok url=%s bytes=%s", response.url, len(response.body))
-        # Stub: listing → PDP extraction TBD; no items until implemented.
+    def is_product_page(self, response: scrapy.http.Response) -> bool:
+        return False
+
+    def extract_listing_product_urls(self, response: scrapy.http.Response) -> list[str]:
+        return []
+
+    def extract_next_page_url(self, response: scrapy.http.Response) -> str | None:
+        return None
+
+    def extract_source_id_from_url(self, url: str) -> str | None:
+        return None
 
     def full_parse_item(self, response: scrapy.http.Response) -> dict[str, Any] | None:
         return None
