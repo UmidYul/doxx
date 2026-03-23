@@ -9,6 +9,7 @@ from domain.production_readiness import (
     ReadinessEvidence,
     ReadinessGap,
 )
+from domain.release_quality import ReleaseReadinessSummary
 
 from application.readiness.gap_assessor import infer_blocking_gaps
 from application.readiness.readiness_policy import (
@@ -74,12 +75,63 @@ def enrich_readiness_with_roadmap(report: ProductionReadinessReport) -> Producti
     )
 
 
+def enrich_readiness_with_go_live(
+    report: ProductionReadinessReport,
+    *,
+    release_summary: ReleaseReadinessSummary | None = None,
+    rollout_summary: dict[str, object] | None = None,
+    status_summary: dict[str, object] | None = None,
+    docs_coverage: dict[str, object] | None = None,
+    roadmap: object | None = None,
+) -> ProductionReadinessReport:
+    """Attach go-live assessment snapshot (10C) using exit criteria + cutover checklist."""
+    from config.settings import settings
+
+    if not getattr(settings, "ENABLE_GO_LIVE_POLICY", True):
+        return report
+    from application.go_live.go_live_policy import assess_go_live
+    from application.readiness.roadmap_planner import build_default_roadmap_from_gaps
+
+    rm = roadmap
+    if rm is None:
+        rm = build_default_roadmap_from_gaps(report.gaps, report.checklist)
+    assessment = assess_go_live(
+        report,
+        release_summary,
+        rollout_summary,
+        status_summary,
+        roadmap=rm,
+        docs_coverage=docs_coverage,
+    )
+    failed = [c.criterion_code for c in assessment.exit_criteria if c.required and not c.passed]
+    cut_block = [i.item_code for i in assessment.cutover_checklist if i.blocking and not i.completed]
+    summary: dict[str, object] = {
+        "decision": assessment.decision,
+        "launch_stage": assessment.launch_stage,
+        "recommended_action": assessment.recommended_action,
+        "blocking_reasons": list(assessment.blocking_reasons),
+        "constraints": list(assessment.constraints),
+    }
+    return report.model_copy(
+        update={
+            "go_live_assessment_summary": summary,
+            "go_live_failed_exit_criteria": failed,
+            "go_live_blocking_cutover_items": cut_block,
+        }
+    )
+
+
 def build_production_readiness_report(
     checklist: list[ReadinessChecklistItem],
     gaps: list[ReadinessGap],
     evidence: list[ReadinessEvidence],
+    *,
+    release_summary: ReleaseReadinessSummary | None = None,
+    rollout_summary: dict[str, object] | None = None,
+    status_summary: dict[str, object] | None = None,
+    docs_coverage: dict[str, object] | None = None,
 ) -> ProductionReadinessReport:
-    """Single aggregate readiness view for parser → CRM (10A + 10B roadmap hints)."""
+    """Single aggregate readiness view for parser → CRM (10A–10C)."""
     domains = sorted({i.domain for i in checklist}, key=lambda d: d)
     blocking = infer_blocking_gaps(gaps)
     critical_risk_count = sum(1 for g in gaps if g.severity == "critical")
@@ -95,7 +147,14 @@ def build_production_readiness_report(
         critical_risk_count=critical_risk_count,
         recommended_action=action,
     )
-    return enrich_readiness_with_roadmap(base)
+    r = enrich_readiness_with_roadmap(base)
+    return enrich_readiness_with_go_live(
+        r,
+        release_summary=release_summary,
+        rollout_summary=rollout_summary,
+        status_summary=status_summary,
+        docs_coverage=docs_coverage,
+    )
 
 
 def summarize_domain_statuses(report: ProductionReadinessReport) -> dict[str, str]:
@@ -168,6 +227,31 @@ def build_human_readiness_report(report: ProductionReadinessReport) -> str:
         lines.append("  Blocked domains → suggested phase/workstream:")
         for d, h in sorted(report.roadmap_phase_hints_by_domain.items())[:12]:
             lines.append(f"    - {d}: {h}")
+
+    from config.settings import settings as _settings
+
+    if getattr(_settings, "ENABLE_GO_LIVE_POLICY", True):
+        lines.extend(
+            [
+                "",
+                "Go-live policy (10C): a green readiness rollup or passing CI release checks alone does not authorize CRM cutover.",
+                "  Run assess_go_live with release + rollout snapshots, exit criteria, dry-run/smoke signals, and cutover checklist.",
+            ]
+        )
+    if report.go_live_assessment_summary:
+        gl = report.go_live_assessment_summary
+        lines.extend(
+            [
+                "",
+                "Go-live assessment snapshot:",
+                f"  Decision: {gl.get('decision')} | Stage: {gl.get('launch_stage')}",
+                f"  Action: {gl.get('recommended_action')}",
+            ]
+        )
+        if report.go_live_failed_exit_criteria:
+            lines.append("  Failed exit criteria: " + ", ".join(report.go_live_failed_exit_criteria[:10]))
+        if report.go_live_blocking_cutover_items:
+            lines.append("  Open blocking cutover items: " + ", ".join(report.go_live_blocking_cutover_items[:10]))
 
     return "\n".join(lines)
 

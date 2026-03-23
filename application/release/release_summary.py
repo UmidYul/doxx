@@ -27,6 +27,10 @@ def build_release_report(
     }
     if migration_readiness is not None and getattr(settings, "ENABLE_MIGRATION_READINESS_REPORT", True):
         rep["migration_readiness"] = migration_readiness
+    if getattr(settings, "ENABLE_GO_LIVE_POLICY", True):
+        rep["go_live_note"] = (
+            "Release overall_passed is not automatic go-live approval; run parser go-live assessment (10C) before CRM cutover."
+        )
     return rep
 
 
@@ -50,4 +54,8 @@ def build_human_release_report(release_summary: ReleaseReadinessSummary) -> str:
         lines.append("Ship with caution: resolve warnings before next release.")
     else:
         lines.append("Do not ship: fix critical failures first.")
+    if getattr(settings, "ENABLE_GO_LIVE_POLICY", True):
+        lines.append(
+            "Go-live: even when release is green, cutover requires exit criteria + cutover checklist (see docs/go_live_policy.md)."
+        )
     return "\n".join(lines)

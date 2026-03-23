@@ -340,6 +340,45 @@ def log_roadmap_event(
     bump_counter_for_message_code(message_code)
 
 
+def log_go_live_event(
+    message_code: str,
+    *,
+    decision: str | None = None,
+    launch_stage: str | None = None,
+    blocker_code: str | None = None,
+    criterion_code: str | None = None,
+    item_code: str | None = None,
+    trigger_code: str | None = None,
+    severity: str | None = None,
+    passed: bool | None = None,
+    recommended_action: str | None = None,
+    details: dict[str, object] | None = None,
+) -> None:
+    """Structured go-live / cutover / stabilization events (10C)."""
+    if not getattr(settings, "ENABLE_STRUCTURED_SYNC_LOGS", True):
+        return
+    det = dict(details or {})
+    if getattr(settings, "ENABLE_SECRET_REDACTION", True):
+        det = dict(redact_mapping_for_logs(det))
+    payload: dict[str, object] = {
+        "observability": "parser_go_live_v1",
+        "message_code": message_code,
+        "decision": decision,
+        "launch_stage": launch_stage,
+        "blocker_code": blocker_code,
+        "criterion_code": criterion_code,
+        "item_code": item_code,
+        "trigger_code": trigger_code,
+        "severity": severity,
+        "passed": passed,
+        "recommended_action": recommended_action,
+        "details": det,
+    }
+    line = json.dumps(payload, default=str, ensure_ascii=False)
+    logging.getLogger("moscraper.go_live").info("go_live_event %s", line)
+    bump_counter_for_message_code(message_code)
+
+
 def log_sync_event(
     stage: str,
     severity: str,

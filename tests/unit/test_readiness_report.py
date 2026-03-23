@@ -28,6 +28,7 @@ def test_human_report_contains_sections() -> None:
     text = build_human_readiness_report(rep)
     assert "Overall:" in text
     assert "Next actions:" in text
+    assert "Go-live policy" in text
     dom = summarize_domain_statuses(rep)
     assert "crawl" in dom
 

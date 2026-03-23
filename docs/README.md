@@ -1,6 +1,6 @@
-# Documentation index (9C)
+# Documentation index
 
-Entry point for **Moscraper** (parser): architecture, operations, and store knowledge. Deep product context: [`PROJECT.md`](../PROJECT.md) (repo root).
+Entry point for **Moscraper** (parser): architecture, operations, and store knowledge. Repo root [`README.md`](../README.md) is the short operational entry; this file is the **navigation index**. Deep product context: [`PROJECT.md`](../PROJECT.md).
 
 ## Quick start
 
@@ -13,7 +13,7 @@ Entry point for **Moscraper** (parser): architecture, operations, and store know
 
 ## Architecture
 
-- [`../PROJECT.md`](../PROJECT.md) — stateless parser, RabbitMQ/CRM boundaries.
+- [`../PROJECT.md`](../PROJECT.md) — stateless parser; **CRM HTTP** primary sync path; **RabbitMQ** optional legacy transport.
 - [`../ARCHITECTURE_MAP.md`](../ARCHITECTURE_MAP.md) — module map (if present).
 - [`adr/README.md`](adr/README.md) — ADR index (why key decisions).
 
@@ -67,3 +67,5 @@ Entry point for **Moscraper** (parser): architecture, operations, and store know
 ## Production readiness (parser → CRM)
 
 - [`production_readiness.md`](production_readiness.md) — domains, evidence, blockers, how to run `scripts/check_readiness.py`.
+- [`implementation_roadmap.md`](implementation_roadmap.md) — phased rollout plan from gaps (10B).
+- [`go_live_policy.md`](go_live_policy.md) — cutover, go/no-go, stabilization (10C).

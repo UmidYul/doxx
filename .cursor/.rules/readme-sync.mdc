@@ -1,0 +1,95 @@
+---
+description: Keep root README and docs index aligned with actual project entrypoints and workflows
+globs:
+  - "README.md"
+  - "docs/README.md"
+  - "DEV_WORKFLOW.md"
+  - ".env.example"
+  - "scripts/*.py"
+  - "application/**/*.py"
+  - "infrastructure/**/*.py"
+alwaysApply: true
+---
+
+The root README.md must never drift away from the real project entrypoints.
+
+Core rule:
+Whenever startup, local run, dry-run, transport mode, testing workflow, documentation navigation, or primary architecture positioning changes, update README.md and docs/README.md in the same change set.
+
+README synchronization requirements:
+
+1. Root README.md must reflect the current primary workflow
+- If the project default transport is CRM HTTP, README.md must not present RabbitMQ-only flow as the main path
+- If dry-run, fixture replay, local smoke, readiness, or single-store workflows exist, README.md must point to them
+- If RabbitMQ exists only as legacy or optional path, say so clearly
+- README.md must identify the true current quick start, not a historical one
+
+2. docs/README.md must remain the navigation source of truth
+- If a new major doc is added, include it
+- If a doc is renamed or removed, fix links immediately
+- If developer workflow changes, docs/README.md must still route readers correctly
+
+3. DEV_WORKFLOW.md must match actual runnable commands
+- Every documented command should be executable or intentionally marked as example/pseudocode
+- If a command path changes, update DEV_WORKFLOW.md
+- If a new local script becomes a primary entrypoint, add it
+- If dry-run/debug modes change, update the exact commands and required env vars
+
+4. .env.example must stay aligned with README/DEV docs
+- If README or DEV_WORKFLOW mentions a setting, it must exist in .env.example unless intentionally runtime-only
+- If a setting is removed or deprecated, README and DEV docs must stop presenting it as current
+- If security, transport, rollout, or dev flags change startup behavior, the docs must reflect it
+
+5. README.md must always contain these sections in accurate form
+- What this project is now
+- Current primary quick start
+- How to run one store locally
+- How to run dry-run safely
+- Where the main documentation lives
+- Optional/legacy paths, clearly labeled
+
+6. Legacy drift prevention
+Never leave historical architecture in README.md as if it were current.
+If the project evolved from:
+- RabbitMQ-only -> CRM HTTP
+- old pipeline -> new pipeline
+- no docs index -> docs/README.md
+then README.md must describe the current state first and mention older paths only as legacy/optional.
+
+7. When these change, update README.md immediately
+- default transport
+- required env vars for startup
+- local run command
+- dry-run command
+- smoke test command
+- readiness command
+- playwright/browser setup
+- current supported store examples
+- primary docs locations
+
+8. When these change, update docs/README.md immediately
+- new doc added
+- old doc removed/renamed
+- architecture map/ownership/support/release docs moved
+- new store playbook added
+- new workflow doc added
+
+9. Documentation consistency check before task completion
+Before finishing any task that may affect entrypoints or docs, verify:
+- Does README.md still describe the real primary flow?
+- Does docs/README.md still point to the right docs?
+- Does DEV_WORKFLOW.md still match actual commands?
+- Does .env.example still match startup expectations?
+- Are legacy paths labeled as legacy and not presented as default?
+
+10. Quality rules
+- Prefer current truth over historical context
+- Be concise but operational
+- Use exact commands, file paths, and env var names
+- Do not leave contradictory instructions across README.md, docs/README.md, and DEV_WORKFLOW.md
+- If root README cannot be kept fully detailed, make it a correct short entrypoint that points to docs/README.md and DEV_WORKFLOW.md
+
+11. Completion note rule
+If a task touched startup, transport, local workflow, or docs navigation, include in the final summary:
+- which of README.md / docs/README.md / DEV_WORKFLOW.md / .env.example were updated
+- whether any legacy instructions were removed or relabeled

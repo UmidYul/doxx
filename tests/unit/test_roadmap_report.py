@@ -27,6 +27,7 @@ def test_human_report_contains_sections() -> None:
     r = build_default_roadmap_from_gaps([], [])
     text = build_human_roadmap_report(r)
     assert "Critical path" in text
+    assert "Canary go-live" in text
     assert "Go-live blockers" in text
     assert "Parallel workstreams" in text
     assert "defer post-launch" in text.lower() or "post-launch" in text.lower()

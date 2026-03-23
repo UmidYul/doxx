@@ -120,4 +120,12 @@ def build_human_roadmap_report(roadmap: ImplementationRoadmap) -> str:
     if not roadmap.post_launch_items:
         lines.append("  (none — tighten scope or add maturity backlog items)")
 
+    lines.extend(
+        [
+            "",
+            "Canary go-live (10C): before widening beyond canary, close go_live_baseline roadmap items, "
+            "pass exit criteria, complete cutover checklist, and run assess_go_live with rollout snapshot.",
+        ]
+    )
+
     return "\n".join(lines)

@@ -29,6 +29,7 @@ def test_build_release_report_lists_failures():
     )
     rep = build_release_report(summary)
     assert rep["overall_passed"] is False
+    assert "go_live_note" in rep
     assert "mediapark" in rep["stores_failing_acceptance"]
     assert "contract:payload" in rep["failed_contract_checks"]
     text = build_human_release_report(summary)

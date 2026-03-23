@@ -1,0 +1,100 @@
+---
+description: Keep project documentation current for every meaningful code/config/contract change
+globs:
+  - "**/*"
+alwaysApply: true
+---
+
+You must keep documentation in sync with code changes.
+
+Core rule:
+For every non-trivial code change, update the relevant documentation in the same change set.
+Never leave behavior, contracts, flags, or workflows undocumented.
+
+Documentation sources of truth:
+- docs/README.md — documentation index
+- docs/onboarding.md — first-day setup and local workflow
+- DEV_WORKFLOW.md — concrete developer commands
+- docs/crm_integration.md — parser -> CRM flow, payloads, lifecycle, replay
+- docs/support_triage.md — health, alerts, triage, safe replay
+- docs/release_process.md — release gates, rollout, compatibility, blocking conditions
+- docs/production_readiness.md — readiness domains, blockers, evidence
+- OWNERSHIP_MAP.md — ownership and escalation paths
+- ARCHITECTURE_MAP.md — module boundaries and where logic belongs
+- docs/stores/<store>.md — store-specific playbooks
+- docs/store_playbook_template.md — template for new stores
+- docs/fixtures_and_acceptance.md — fixtures, acceptance, regression workflow
+- docs/adr/*.md — architecture decision records for important design choices
+- .env.example — every new environment variable or config flag must be documented here
+
+Mandatory documentation updates by change type:
+
+1) If changing CRM payload, lifecycle, replay, reconciliation, transport, batch/apply semantics:
+- Update docs/crm_integration.md
+- Update docs/release_process.md if rollout/compatibility expectations changed
+- Update contract tests if shape changed
+- Add/update ADR if the design decision is architectural
+
+2) If changing spiders, store profiles, crawling rules, anti-bot behavior, acceptance criteria:
+- Update the affected docs/stores/<store>.md playbook
+- Update docs/fixtures_and_acceptance.md if fixture/acceptance workflow changed
+- Update docs/README.md if a new store document appears
+
+3) If changing normalization, typed_specs, spec registry, confidence, suppression logic:
+- Update docs/crm_integration.md if payload semantics changed
+- Update docs/support_triage.md if diagnostics/quality metadata changed
+- Add/update ADR if the hybrid model or confidence policy changes materially
+
+4) If adding/changing env vars, feature flags, rollout flags, security settings, performance settings:
+- Update .env.example
+- Update DEV_WORKFLOW.md if local usage changes
+- Update docs/release_process.md if rollout behavior changes
+- Update docs/onboarding.md if setup/startup behavior changes
+
+5) If changing observability, ETL export, health status, alerts, triage, runbooks, support outputs:
+- Update docs/support_triage.md
+- Update docs/production_readiness.md if readiness evidence/gates changed
+- Update docs/README.md if a new support or diagnostics doc appears
+
+6) If changing release gates, rollout stages, compatibility, deprecations, dual-shape, migration policy:
+- Update docs/release_process.md
+- Update docs/production_readiness.md
+- Update relevant ADRs if the release philosophy changed
+
+7) If adding developer tools, scripts, smoke checks, fixture replay, dry-run/debug modes:
+- Update DEV_WORKFLOW.md
+- Update docs/onboarding.md
+- Update docs/README.md if navigation changed
+
+8) If adding a new architectural module or changing module boundaries:
+- Update ARCHITECTURE_MAP.md
+- Update OWNERSHIP_MAP.md if ownership shifts
+- Add/update an ADR for important boundary decisions
+
+When to create or update an ADR:
+Create or update a short ADR when the change affects:
+- stateless vs stateful behavior
+- lifecycle event policy
+- replay/idempotency semantics
+- payload compatibility strategy
+- rollout/canary policy
+- security posture
+- performance/resource governance philosophy
+
+Documentation quality rules:
+- Keep docs practical and operational
+- Prefer concrete commands, paths, flags, and examples
+- Do not write abstract essays
+- Do not leave placeholders like "TODO: document later"
+- If behavior changed, describe the new behavior and the old assumption that is no longer valid
+- If a change is intentionally internal-only and requires no docs update, explicitly state why in your final summary
+
+Completion rule:
+Before finishing a task, always perform a documentation check:
+1. Which docs are impacted?
+2. Which docs were updated?
+3. Which new env vars or flags were added?
+4. Which operator/developer workflows changed?
+5. Is docs/README.md still a correct index?
+
+If any answer implies missing documentation, update docs before завершение.

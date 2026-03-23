@@ -90,3 +90,7 @@ class ProductionReadinessReport(BaseModel):
     roadmap_critical_path: list[str] = Field(default_factory=list)
     roadmap_phase_hints_by_domain: dict[str, str] = Field(default_factory=dict)
     roadmap_top_blocker_item_codes: list[str] = Field(default_factory=list)
+    # --- 10C: go-live policy snapshot (optional) ---
+    go_live_assessment_summary: dict[str, object] | None = None
+    go_live_failed_exit_criteria: list[str] = Field(default_factory=list)
+    go_live_blocking_cutover_items: list[str] = Field(default_factory=list)

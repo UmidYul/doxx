@@ -346,5 +346,25 @@ class Settings(BaseSettings):
     DEV_DEBUG_INCLUDE_LIFECYCLE: bool = True
     DEV_DEBUG_INCLUDE_APPLY_RESULTS: bool = True
 
+    # --- Go-live / cutover / stabilization (10C) ---
+    ENABLE_GO_LIVE_POLICY: bool = True
+    ENABLE_CUTOVER_CHECKLIST: bool = True
+    ENABLE_STABILIZATION_CHECKPOINTS: bool = True
+    ENABLE_ROLLBACK_TRIGGER_EVALUATION: bool = True
+    GO_LIVE_REQUIRE_READINESS_READY: bool = True
+    GO_LIVE_REQUIRE_RELEASE_GATES_PASS: bool = True
+    GO_LIVE_REQUIRE_SECURITY_BASELINE: bool = True
+    GO_LIVE_REQUIRE_ENABLED_STORE_PLAYBOOKS: bool = True
+    GO_LIVE_REQUIRE_OBSERVABILITY_BASELINE: bool = True
+    GO_LIVE_REQUIRE_ROLLOUT_POLICY: bool = True
+    GO_LIVE_CANARY_ONLY_FIRST: bool = True
+    STABILIZATION_BLOCK_ON_CRITICAL_ALERTS: bool = True
+    STABILIZATION_MAX_CRITICAL_ALERTS: int = Field(default=0, ge=0, le=100)
+    STABILIZATION_MAX_HIGH_ALERTS: int = Field(default=3, ge=0, le=1000)
+    STABILIZATION_MAX_REJECTED_ITEM_RATE: float = Field(default=0.15, ge=0.0, le=1.0)
+    STABILIZATION_MAX_BLOCK_PAGE_RATE: float = Field(default=0.10, ge=0.0, le=1.0)
+    STABILIZATION_MAX_MALFORMED_RESPONSE_RATE: float = Field(default=0.05, ge=0.0, le=1.0)
+    STABILIZATION_MAX_UNRESOLVED_RECONCILIATION_RATE: float = Field(default=0.05, ge=0.0, le=1.0)
+
 
 settings = Settings()
