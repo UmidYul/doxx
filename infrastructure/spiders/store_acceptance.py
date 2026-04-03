@@ -84,7 +84,8 @@ MEDIAPARK_ACCEPTANCE = StoreAcceptanceProfile(
     variant_risk="medium",
     empty_shell_risk="low",
     expected_category_hints=frozenset(
-        {"phone", "laptop", "tv", "tablet", "appliance", "accessory", "unknown"}
+        {"phone", "laptop", "tv", "tablet", "appliance", "accessory",
+         "monitor", "gaming", "unknown"}
     ),
     quality_gates=StoreQualityGate(
         field_presence_threshold=0.72,
@@ -122,7 +123,8 @@ UZUM_ACCEPTANCE = StoreAcceptanceProfile(
     variant_risk="high",
     empty_shell_risk="high",
     expected_category_hints=frozenset(
-        {"phone", "laptop", "tv", "tablet", "appliance", "accessory", "unknown"}
+        {"phone", "laptop", "tv", "tablet", "appliance", "accessory",
+         "monitor", "gaming", "unknown"}
     ),
     quality_gates=StoreQualityGate(
         field_presence_threshold=0.65,
@@ -135,6 +137,14 @@ UZUM_ACCEPTANCE = StoreAcceptanceProfile(
     ),
     edge_case_scenarios=(
         StoreEdgeCaseScenario(
+            name="listing_good",
+            fixture_relative_path="uzum/listing_good.html",
+        ),
+        StoreEdgeCaseScenario(
+            name="pdp_full",
+            fixture_relative_path="uzum/pdp_full.html",
+        ),
+        StoreEdgeCaseScenario(
             name="empty_shell",
             fixture_relative_path="uzum/empty_shell.html",
             expected_edge_tags=("empty_listing_shell",),
@@ -142,9 +152,83 @@ UZUM_ACCEPTANCE = StoreAcceptanceProfile(
     ),
 )
 
+TEXNOMART_ACCEPTANCE = StoreAcceptanceProfile(
+    store_name="texnomart",
+    required_listing_signals=("product_links", "pagination_hint_optional"),
+    required_product_signals=("title", "url", "source", "identity"),
+    required_fields=RequiredFieldPolicy(),
+    optional_fields=("description", "barcode", "model_name"),
+    min_product_links_per_listing_page=1,
+    max_duplicate_listing_repeats=3,
+    supports_variants=True,
+    supports_js_shell="medium",
+    supports_mobile_redirect_risk="medium",
+    browser_dependence="medium",
+    variant_risk="medium",
+    empty_shell_risk="low",
+    expected_category_hints=MEDIAPARK_ACCEPTANCE.expected_category_hints,
+    quality_gates=StoreQualityGate(
+        field_presence_threshold=0.70,
+        parse_success_threshold=0.55,
+        duplicate_ratio_threshold=0.40,
+        partial_item_ratio_threshold=0.50,
+        zero_result_category_threshold=10,
+        pagination_loop_threshold=5,
+        banned_response_threshold=0.12,
+    ),
+    edge_case_scenarios=(
+        StoreEdgeCaseScenario(
+            name="listing_good",
+            fixture_relative_path="texnomart/listing_good.html",
+        ),
+        StoreEdgeCaseScenario(
+            name="pdp_full",
+            fixture_relative_path="texnomart/pdp_full.html",
+        ),
+    ),
+)
+
+ALIFSHOP_ACCEPTANCE = StoreAcceptanceProfile(
+    store_name="alifshop",
+    required_listing_signals=("product_links",),
+    required_product_signals=("title", "url", "source", "identity"),
+    required_fields=RequiredFieldPolicy(),
+    optional_fields=("description", "barcode", "model_name"),
+    min_product_links_per_listing_page=1,
+    max_duplicate_listing_repeats=3,
+    supports_variants=False,
+    supports_js_shell="low",
+    supports_mobile_redirect_risk="low",
+    browser_dependence="low",
+    variant_risk="low",
+    empty_shell_risk="low",
+    expected_category_hints=MEDIAPARK_ACCEPTANCE.expected_category_hints,
+    quality_gates=StoreQualityGate(
+        field_presence_threshold=0.72,
+        parse_success_threshold=0.60,
+        duplicate_ratio_threshold=0.40,
+        partial_item_ratio_threshold=0.50,
+        zero_result_category_threshold=8,
+        pagination_loop_threshold=4,
+        banned_response_threshold=0.10,
+    ),
+    edge_case_scenarios=(
+        StoreEdgeCaseScenario(
+            name="listing_good",
+            fixture_relative_path="alifshop/listing_good.html",
+        ),
+        StoreEdgeCaseScenario(
+            name="pdp_full",
+            fixture_relative_path="alifshop/pdp_full.html",
+        ),
+    ),
+)
+
 _ACCEPTANCE_REGISTRY: dict[str, StoreAcceptanceProfile] = {
     "mediapark": MEDIAPARK_ACCEPTANCE,
     "uzum": UZUM_ACCEPTANCE,
+    "texnomart": TEXNOMART_ACCEPTANCE,
+    "alifshop": ALIFSHOP_ACCEPTANCE,
 }
 
 

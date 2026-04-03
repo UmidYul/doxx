@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://doxx.local/contracts/scraper_product_event.schema.json",
+  "title": "Scraper Product Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "schema_version",
+    "scrape_run_id",
+    "store_name",
+    "source_url",
+    "scraped_at",
+    "payload_hash",
+    "structured_payload",
+    "publication"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string"
+    },
+    "event_type": {
+      "type": "string",
+      "const": "scraper.product.scraped.v1"
+    },
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "scrape_run_id": {
+      "type": "string"
+    },
+    "store_name": {
+      "type": "string"
+    },
+    "source_id": {
+      "type": ["string", "null"]
+    },
+    "source_url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "scraped_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "payload_hash": {
+      "type": "string"
+    },
+    "structured_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "store_name",
+        "source_url",
+        "title",
+        "raw_specs",
+        "image_urls",
+        "scraped_at",
+        "payload_hash",
+        "raw_payload_snapshot",
+        "scrape_run_id",
+        "identity_key"
+      ],
+      "properties": {
+        "store_name": { "type": "string" },
+        "source_url": { "type": "string", "format": "uri" },
+        "source_id": { "type": ["string", "null"] },
+        "title": { "type": "string" },
+        "brand": { "type": ["string", "null"] },
+        "price_raw": { "type": ["string", "null"] },
+        "in_stock": { "type": ["boolean", "null"] },
+        "raw_specs": {
+          "type": "object"
+        },
+        "image_urls": {
+          "type": "array",
+          "items": { "type": "string", "format": "uri" }
+        },
+        "description": { "type": ["string", "null"] },
+        "category_hint": { "type": ["string", "null"] },
+        "external_ids": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "scraped_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "payload_hash": { "type": "string" },
+        "raw_payload_snapshot": {
+          "type": "object"
+        },
+        "scrape_run_id": { "type": "string" },
+        "identity_key": { "type": "string" }
+      }
+    },
+    "publication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "publication_version",
+        "outbox_status",
+        "outbox_created_at"
+      ],
+      "properties": {
+        "publication_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "exchange_name": {
+          "type": ["string", "null"]
+        },
+        "queue_name": {
+          "type": ["string", "null"]
+        },
+        "routing_key": {
+          "type": ["string", "null"]
+        },
+        "outbox_status": {
+          "type": "string",
+          "enum": ["pending", "publishing", "published", "retryable", "failed"]
+        },
+        "attempt_number": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "publisher_service": {
+          "type": ["string", "null"]
+        },
+        "outbox_created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "published_at": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

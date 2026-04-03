@@ -60,6 +60,10 @@ class BaseProductSpider(scrapy.Spider, ABC):
     def extract_next_page_url(self, response: scrapy.http.Response) -> str | None:
         """Next listing page URL, or None."""
 
+    def extract_listing_category_urls(self, response: scrapy.http.Response) -> list[str]:
+        """Optional subcategory/listing URLs discovered on a listing page."""
+        return []
+
     # --- ProductExtractionContract ---
     def canonicalize_product_url(self, url: str) -> str:
         """Override per store if path/query rules differ."""
@@ -96,10 +100,11 @@ class BaseProductSpider(scrapy.Spider, ABC):
         logger.info("crawl_framework %s", json.dumps(payload, default=str, ensure_ascii=False))
 
     def open_spider(self) -> None:
-        """Anchor parser run_id for observability (crawl → CRM correlation)."""
+        """Anchor one scrape run id for crawl correlation and scraper DB persistence."""
         from infrastructure.observability.correlation import build_run_id
 
         self._parser_run_id = build_run_id(self.name)
+        self._scrape_run_id = self._parser_run_id
 
     def _obs_corr_crawl(self, **kwargs: Any):
         from infrastructure.observability.correlation import build_correlation_context
@@ -335,6 +340,7 @@ class BaseProductSpider(scrapy.Spider, ABC):
         reg.listing_pages_seen_total += 1
 
         raw_urls = self.extract_listing_product_urls(response)
+        raw_category_urls = self.extract_listing_category_urls(response)
 
         from infrastructure.observability import message_codes as obs_mc
         from infrastructure.observability.event_logger import log_sync_event
@@ -347,6 +353,9 @@ class BaseProductSpider(scrapy.Spider, ABC):
             metrics={"page": page, "product_links": len(raw_urls)},
         )
         abs_urls = [response.urljoin(u.strip()) for u in raw_urls if u and str(u).strip()]
+        abs_category_urls = [
+            response.urljoin(u.strip()) for u in raw_category_urls if u and str(u).strip()
+        ]
         canon_products = [self.canonicalize_product_url(u) for u in abs_urls]
 
         sig = self.build_listing_signature(response, canon_products, page)
@@ -455,6 +464,32 @@ class BaseProductSpider(scrapy.Spider, ABC):
             )
             if pr is not None:
                 yield pr
+
+        # Schedule discovered nested listing/category pages (e.g. brand/category menus).
+        for cu in abs_category_urls:
+            ccu = canonicalize_url(cu)
+            if reg.has_listing_page_url(ccu):
+                continue
+            reg.remember_listing_page_url(ccu)
+            self._crawl_event(
+                "CATEGORY_DISCOVERED",
+                parent_category_url=category_url,
+                discovered_category_url=ccu,
+                page=1,
+            )
+            req = self.schedule_safe_request(
+                cu,
+                callback=self.parse,
+                purpose="listing",
+                meta={
+                    "category_url": cu,
+                    "page": 1,
+                    "empty_streak": 0,
+                    "dup_sig_streak": 0,
+                },
+            )
+            if req is not None:
+                yield req
 
         next_url = self.extract_next_page_url(response)
         stop, reason = self.should_stop_pagination(
@@ -615,6 +650,10 @@ class BaseProductSpider(scrapy.Spider, ABC):
             return
 
         self.crawl_registry.required_field_presence_hits += 1
+        self.crawl_registry.note_product_asset_coverage(
+            has_specs=bool(item.get("raw_specs")),
+            has_images=bool(item.get("image_urls")),
+        )
 
         acc_prof = get_store_acceptance_profile(self.store_name or self.name)
         pe_tags = edge_cases.classify_product_edge_case(

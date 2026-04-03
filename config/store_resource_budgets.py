@@ -34,10 +34,10 @@ def _mediapark() -> StoreResourceBudget:
         max_product_requests=10,
         max_batch_inflight=3,
         max_retryable_queue=150,
-        max_browser_pages=1,
+        max_browser_pages=3,
         max_proxy_requests=8,
         max_memory_mb=480,
-        notes=["plain_http_heavier_listing", "browser_minimal"],
+        notes=["plain_http_heavier_listing", "browser_fallback_needs_headroom"],
     )
 
 
@@ -49,10 +49,25 @@ def _uzum() -> StoreResourceBudget:
         max_product_requests=5,
         max_batch_inflight=2,
         max_retryable_queue=120,
-        max_browser_pages=2,
+        max_browser_pages=3,
         max_proxy_requests=4,
         max_memory_mb=512,
-        notes=["browser_store_lower_http_concurrency", "strict_browser_cap"],
+        notes=["browser_store_lower_http_concurrency", "playwright_parallel_headroom"],
+    )
+
+
+def _texnomart() -> StoreResourceBudget:
+    return StoreResourceBudget(
+        store_name="texnomart",
+        max_concurrent_requests=12,
+        max_listing_requests=7,
+        max_product_requests=8,
+        max_batch_inflight=3,
+        max_retryable_queue=140,
+        max_browser_pages=3,
+        max_proxy_requests=6,
+        max_memory_mb=448,
+        notes=["html_first_with_browser_fallback"],
     )
 
 
@@ -63,6 +78,7 @@ def _load() -> None:
     _STORES = {
         "mediapark": _mediapark(),
         "uzum": _uzum(),
+        "texnomart": _texnomart(),
     }
 
 

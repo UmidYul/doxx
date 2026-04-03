@@ -14,3 +14,17 @@ def test_run_store_acceptance_mediapark_fixture_passes(monkeypatch):
     results = run_store_acceptance_gates(["mediapark"])
     assert len(results) == 1
     assert results[0].passed, results[0].notes
+
+
+def test_run_store_acceptance_texnomart_fixture_passes(monkeypatch):
+    monkeypatch.setattr("application.release.store_gate_runner.settings.STORE_NAMES", ["texnomart"])
+    results = run_store_acceptance_gates(["texnomart"])
+    assert len(results) == 1
+    assert results[0].passed, results[0].notes
+
+
+def test_run_store_acceptance_alifshop_fixture_passes(monkeypatch):
+    monkeypatch.setattr("application.release.store_gate_runner.settings.STORE_NAMES", ["alifshop"])
+    results = run_store_acceptance_gates(["alifshop"])
+    assert len(results) == 1
+    assert results[0].passed, results[0].notes

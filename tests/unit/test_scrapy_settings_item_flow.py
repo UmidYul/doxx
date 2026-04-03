@@ -8,8 +8,7 @@ from config import scrapy_settings
 
 _EXPECTED_PIPELINES = {
     "infrastructure.pipelines.validate_pipeline.ValidatePipeline": 100,
-    "infrastructure.pipelines.normalize_pipeline.NormalizePipeline": 200,
-    "infrastructure.pipelines.sync_pipeline.SyncPipeline": 300,
+    "infrastructure.pipelines.scraper_storage_pipeline.ScraperStoragePipeline": 200,
 }
 
 _REQUIRED_MIDDLEWARE_SUBSTRINGS = (
@@ -50,3 +49,5 @@ def test_scrapy_list_exits_zero():
         timeout=90,
     )
     assert proc.returncode == 0, proc.stderr or proc.stdout
+    spiders = {line.strip() for line in proc.stdout.splitlines() if line.strip()}
+    assert {"mediapark", "texnomart", "uzum", "alifshop"}.issubset(spiders)

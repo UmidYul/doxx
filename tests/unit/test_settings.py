@@ -44,7 +44,7 @@ def test_settings_instantiates_with_env_example_pairs(monkeypatch: pytest.Monkey
     assert s.RABBITMQ_EXCHANGE == "moscraper.events"
     assert s.BROKER_TYPE == "rabbitmq"
     assert s.MAX_PUBLISH_RETRIES == 0
-    assert s.TRANSPORT_TYPE == "crm_http"
+    assert s.TRANSPORT_TYPE == "disabled"
     assert s.CRM_SYNC_ENDPOINT == "/api/parser/sync"
     assert s.CRM_BATCH_SIZE == 50
 

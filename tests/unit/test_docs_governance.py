@@ -26,7 +26,11 @@ def test_check_docs_presence_detects_missing() -> None:
 
 def test_build_docs_coverage_report_real_repo() -> None:
     root = Path(__file__).resolve().parents[2]
-    r = build_docs_coverage_report(str(root), store_names=["mediapark", "uzum"], emit_structured_logs=False)
+    r = build_docs_coverage_report(
+        str(root),
+        store_names=["mediapark", "texnomart", "uzum", "alifshop"],
+        emit_structured_logs=False,
+    )
     assert r["coverage_pct"] == 100.0
     assert r["missing_required_docs"] == []
     assert r["stores_missing_playbooks"] == []
@@ -34,7 +38,11 @@ def test_build_docs_coverage_report_real_repo() -> None:
 
 def test_compute_docs_governance_flags_passes_on_repo() -> None:
     root = Path(__file__).resolve().parents[2]
-    f = compute_docs_governance_flags(str(root), store_names=["mediapark", "uzum"], emit_structured_logs=False)
+    f = compute_docs_governance_flags(
+        str(root),
+        store_names=["mediapark", "texnomart", "uzum", "alifshop"],
+        emit_structured_logs=False,
+    )
     assert f["docs_required_present"] is True
     assert f["store_playbooks_for_enabled_stores"] is True
     assert f["knowledge_continuity_no_critical_gaps"] is True

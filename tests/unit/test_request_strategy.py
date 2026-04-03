@@ -69,6 +69,19 @@ def test_repeated_empty_shell_escalation_decision():
         )
 
 
+def test_cloudflare_challenge_escalates_on_first_failure_count():
+    assert (
+        should_escalate_to_browser(
+            "mediapark",
+            "listing",
+            "cloudflare_challenge",
+            1,
+            spider_supports_browser=True,
+        )
+        is True
+    )
+
+
 def test_deterministic_same_inputs_same_meta_keys():
     a = build_request_meta("mediapark", "product", prior_failures=0, spider_supports_browser=False)
     b = build_request_meta("mediapark", "product", prior_failures=0, spider_supports_browser=False)

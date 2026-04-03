@@ -1,8 +1,6 @@
-# Local stack: RabbitMQ + Scrapy crawler only (no database or Redis services).
+# Local stack: scraper + publisher + RabbitMQ with shared scraper DB volume.
 # Usage: docker compose up --build
 # UI: http://localhost:15672 (guest/guest)
-#
-# If nothing is bound to the exchange yet, set RABBITMQ_PUBLISH_MANDATORY=false on scraper.
 
 services:
   rabbitmq:
@@ -36,8 +34,35 @@ services:
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       RABBITMQ_EXCHANGE: moscraper.events
       RABBITMQ_EXCHANGE_TYPE: topic
+      RABBITMQ_QUEUE: scraper.products.v1
       RABBITMQ_ROUTING_KEY: listing.scraped.v1
       RABBITMQ_PUBLISH_MANDATORY: "true"
-      MOSCRAPER_DISABLE_PUBLISH: "false"
+      SCRAPER_DB_PATH: /data/scraper/scraper.db
+    volumes:
+      - scraper-data:/data/scraper
     # Override spider: docker compose run scraper scrapy crawl uzum
     command: ["scrapy", "crawl", "mediapark"]
+
+  publisher:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: moscraper-publisher
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      RABBITMQ_EXCHANGE: moscraper.events
+      RABBITMQ_EXCHANGE_TYPE: topic
+      RABBITMQ_QUEUE: scraper.products.v1
+      RABBITMQ_ROUTING_KEY: listing.scraped.v1
+      RABBITMQ_PUBLISH_MANDATORY: "true"
+      SCRAPER_DB_PATH: /data/scraper/scraper.db
+      PUBLISHER_POLL_INTERVAL_SECONDS: "2.0"
+    volumes:
+      - scraper-data:/data/scraper
+    command: ["python", "-m", "services.publisher.main"]
+
+volumes:
+  scraper-data:

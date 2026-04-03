@@ -29,6 +29,10 @@ class CrawlRuntimeRegistry:
         self.product_parse_partial_total: int = 0
         self.product_parse_failed_total: int = 0
         self.product_items_yielded_total: int = 0
+        self.products_with_specs_total: int = 0
+        self.products_without_specs_total: int = 0
+        self.products_with_images_total: int = 0
+        self.products_without_images_total: int = 0
 
         self._edge_case_counts: defaultdict[str, int] = defaultdict(int)
         self.banned_responses_total: int = 0
@@ -46,6 +50,16 @@ class CrawlRuntimeRegistry:
 
     def note_pagination_loop(self) -> None:
         self.pagination_loops_detected += 1
+
+    def note_product_asset_coverage(self, *, has_specs: bool, has_images: bool) -> None:
+        if has_specs:
+            self.products_with_specs_total += 1
+        else:
+            self.products_without_specs_total += 1
+        if has_images:
+            self.products_with_images_total += 1
+        else:
+            self.products_without_images_total += 1
 
     def _max_entries(self) -> int:
         return int(settings.SCRAPY_CRAWL_REGISTRY_MAX_ENTRIES)
@@ -117,18 +131,30 @@ class CrawlRuntimeRegistry:
                 self._listing_to_product_counts.popitem(last=False)
 
     def snapshot_metrics(self) -> dict[str, int | str]:
+        total_pages_visited = self.listing_pages_seen_total + self.product_pages_seen_total
+        specs_seen = self.products_with_specs_total + self.products_without_specs_total
+        images_seen = self.products_with_images_total + self.products_without_images_total
         return {
             "store": self.store,
             "categories_started_total": self.categories_started_total,
             "categories_zero_result_total": self.categories_zero_result_total,
             "listing_pages_seen_total": self.listing_pages_seen_total,
+            "pages_visited_total": total_pages_visited,
             "listing_pages_duplicated_total": self.listing_pages_duplicated_total,
             "product_urls_seen_total": self.product_urls_seen_total,
             "product_urls_deduped_total": self.product_urls_deduped_total,
             "product_pages_seen_total": self.product_pages_seen_total,
             "product_parse_partial_total": self.product_parse_partial_total,
             "product_parse_failed_total": self.product_parse_failed_total,
+            "failed_pdp_total": self.product_parse_failed_total,
             "product_items_yielded_total": self.product_items_yielded_total,
+            "scraped_items_total": self.product_items_yielded_total,
+            "products_with_specs_total": self.products_with_specs_total,
+            "products_without_specs_total": self.products_without_specs_total,
+            "products_with_images_total": self.products_with_images_total,
+            "products_without_images_total": self.products_without_images_total,
+            "spec_coverage_ratio": (self.products_with_specs_total / specs_seen) if specs_seen else 0.0,
+            "image_coverage_ratio": (self.products_with_images_total / images_seen) if images_seen else 0.0,
             "zero_result_categories_count": len(self._zero_result_categories),
             "edge_case_counts": dict(self._edge_case_counts),
             "banned_responses_total": self.banned_responses_total,

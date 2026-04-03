@@ -97,6 +97,10 @@ def should_escalate_to_browser(
     if not profile.fallback_to_browser:
         return False
 
+    # Cloudflare interstitials: escalate on first observed challenge (failure_count is prior+1 from middleware).
+    if detected_signal == "cloudflare_challenge" and failure_count >= 1:
+        return True
+
     shellish = {"js_shell", "empty_shell", "cloudflare_challenge"}
     if detected_signal in shellish and failure_count >= app_settings.SCRAPY_ACCESS_SHELL_ESCALATE_AFTER:
         return True

@@ -18,18 +18,28 @@ from infrastructure.spiders.field_policy import (
     missing_recommended_fields,
     missing_required_fields,
 )
+from infrastructure.spiders.alifshop import AlifshopSpider
 from infrastructure.spiders.mediapark import MediaparkSpider
 from infrastructure.spiders.qa_report import build_store_qa_report, summarize_store_quality
+from infrastructure.spiders.texnomart import TexnomartSpider
 from infrastructure.spiders.store_acceptance import (
     StoreAcceptanceProfile,
     get_store_acceptance_profile,
 )
+from infrastructure.spiders.uzum import UzumSpider
 from infrastructure.spiders.url_tools import canonicalize_url
 
 logger = logging.getLogger("store_acceptance")
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "tests" / "fixtures" / "stores"
+
+_SPIDER_BY_STORE = {
+    "mediapark": MediaparkSpider,
+    "texnomart": TexnomartSpider,
+    "uzum": UzumSpider,
+    "alifshop": AlifshopSpider,
+}
 
 
 def _fixture_path(rel: str) -> Path:
@@ -47,20 +57,26 @@ def _log_event(event: str, **fields: object) -> None:
     logger.info("crawl_framework %s", json.dumps(payload, default=str, ensure_ascii=False))
 
 
-def _run_mediapark_listing(
+def _run_store_listing(
+    store: str,
     profile: StoreAcceptanceProfile,
     rel_path: str,
     *,
+    listing_url: str,
+    duplicate_seen: int = 0,
+    duplicate_deduped: int = 0,
     edge_totals: defaultdict[str, int],
     metrics: dict[str, int],
 ) -> None:
+    spider_cls = _SPIDER_BY_STORE[store]
     p = _fixture_path(rel_path)
-    url = "https://mediapark.uz/products/category/telefony-17/smartfony-40?page=1"
-    resp = scrapy.http.HtmlResponse(url=url, body=_load_body(p))
-    spider = MediaparkSpider()
-    access = get_store_profile("mediapark")
+    resp = scrapy.http.HtmlResponse(url=listing_url, body=_load_body(p))
+    spider = spider_cls()
+    access = get_store_profile(store)
     urls = spider.extract_listing_product_urls(resp)
     metrics["total_listing_pages"] += 1
+    metrics["product_urls_seen_total"] += len(urls) + duplicate_seen
+    metrics["product_urls_deduped_total"] += duplicate_deduped
     assert len(urls) >= profile.min_product_links_per_listing_page, f"{rel_path}: expected listing links"
 
     ban = ban_detector.detect_ban_signal(resp, request=resp.request, empty_body_threshold=access.empty_body_threshold)
@@ -78,10 +94,11 @@ def _run_mediapark_listing(
         edge_totals[t] += 1
 
 
-def _run_mediapark_pdp(
-    rel_path: str,
+def _run_store_pdp(
+    store: str,
     *,
     status: int,
+    rel_path: str,
     product_url: str,
     edge_totals: defaultdict[str, int],
     metrics: dict[str, int],
@@ -89,7 +106,7 @@ def _run_mediapark_pdp(
 ) -> None:
     p = _fixture_path(rel_path)
     resp = scrapy.http.HtmlResponse(url=product_url, status=status, body=_load_body(p))
-    spider = MediaparkSpider()
+    spider = _SPIDER_BY_STORE[store]()
     metrics["total_product_pages"] += 1
     raw = spider.full_parse_item(resp)
     if raw is None:
@@ -156,41 +173,52 @@ def run_acceptance_for_store(store: str) -> tuple[dict, dict]:
     }
 
     if store == "mediapark":
-        _run_mediapark_listing(profile, "mediapark/listing_good.html", edge_totals=edge_totals, metrics=metrics)
+        _run_store_listing(
+            "mediapark",
+            profile,
+            "mediapark/listing_good.html",
+            listing_url="https://mediapark.uz/products/category/telefony-17/smartfony-40?page=1",
+            duplicate_seen=1,
+            duplicate_deduped=1,
+            edge_totals=edge_totals,
+            metrics=metrics,
+        )
         # Dedup simulation: same canonical URL scheduled twice
         u1 = "https://mediapark.uz/products/view/dup-product-111"
         c1 = canonicalize_url(u1)
-        metrics["product_urls_seen_total"] += 4
-        metrics["product_urls_deduped_total"] += 1
         _ = c1
 
         pdp_url = "https://mediapark.uz/products/view/test-laptop-888"
-        _run_mediapark_pdp(
-            "mediapark/pdp_partial.html",
+        _run_store_pdp(
+            "mediapark",
+            rel_path="mediapark/pdp_partial.html",
             status=200,
             product_url=pdp_url,
             edge_totals=edge_totals,
             metrics=metrics,
             profile=profile,
         )
-        _run_mediapark_pdp(
-            "mediapark/pdp_full.html",
+        _run_store_pdp(
+            "mediapark",
+            rel_path="mediapark/pdp_full.html",
             status=200,
             product_url="https://mediapark.uz/products/view/samsung-tv-777",
             edge_totals=edge_totals,
             metrics=metrics,
             profile=profile,
         )
-        _run_mediapark_pdp(
-            "mediapark/pdp_full.html",
+        _run_store_pdp(
+            "mediapark",
+            rel_path="mediapark/pdp_full.html",
             status=200,
             product_url="https://mediapark.uz/products/view/samsung-tv-778",
             edge_totals=edge_totals,
             metrics=metrics,
             profile=profile,
         )
-        _run_mediapark_pdp(
-            "mediapark/pdp_deleted_404.html",
+        _run_store_pdp(
+            "mediapark",
+            rel_path="mediapark/pdp_deleted_404.html",
             status=404,
             product_url="https://mediapark.uz/products/view/missing-404",
             edge_totals=edge_totals,
@@ -211,8 +239,61 @@ def run_acceptance_for_store(store: str) -> tuple[dict, dict]:
         )
         for t in stags:
             edge_totals[t] += 1
+    elif store == "texnomart":
+        _run_store_listing(
+            "texnomart",
+            profile,
+            "texnomart/listing_good.html",
+            listing_url="https://texnomart.uz/ru/katalog/smartfony/",
+            edge_totals=edge_totals,
+            metrics=metrics,
+        )
+        _run_store_pdp(
+            "texnomart",
+            rel_path="texnomart/pdp_full.html",
+            status=200,
+            product_url="https://texnomart.uz/ru/product/detail/555666",
+            edge_totals=edge_totals,
+            metrics=metrics,
+            profile=profile,
+        )
     elif store == "uzum":
+        _run_store_listing(
+            "uzum",
+            profile,
+            "uzum/listing_good.html",
+            listing_url="https://uzum.uz/ru/category/smartfony-i-telefony-10021",
+            edge_totals=edge_totals,
+            metrics=metrics,
+        )
+        _run_store_pdp(
+            "uzum",
+            rel_path="uzum/pdp_full.html",
+            status=200,
+            product_url="https://uzum.uz/ru/product/demo-phone-111111?skuId=123456",
+            edge_totals=edge_totals,
+            metrics=metrics,
+            profile=profile,
+        )
         _run_uzum_shell("uzum/empty_shell.html", edge_totals, metrics)
+    elif store == "alifshop":
+        _run_store_listing(
+            "alifshop",
+            profile,
+            "alifshop/listing_good.html",
+            listing_url="https://alifshop.uz/ru/categories/smartfoni-apple",
+            edge_totals=edge_totals,
+            metrics=metrics,
+        )
+        _run_store_pdp(
+            "alifshop",
+            rel_path="alifshop/pdp_full.html",
+            status=200,
+            product_url="https://alifshop.uz/ru/moderated-offer/demo-phone-blue-1772002920",
+            edge_totals=edge_totals,
+            metrics=metrics,
+            profile=profile,
+        )
     else:
         raise SystemExit(f"Unknown store for fixture runner: {store}")
 
@@ -226,8 +307,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "stores",
         nargs="*",
-        default=["mediapark", "uzum"],
-        help="Store keys (default: mediapark uzum)",
+        default=["mediapark", "texnomart", "uzum", "alifshop"],
+        help="Store keys (default: mediapark texnomart uzum alifshop)",
     )
     args = parser.parse_args(argv)
 

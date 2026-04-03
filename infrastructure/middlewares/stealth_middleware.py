@@ -11,7 +11,7 @@ class StealthMiddleware:
             request.meta.setdefault("playwright_page_init_callback", self._init_page)
 
     @staticmethod
-    async def _init_page(page):
+    async def _init_page(page, request=None):
         try:
             from playwright_stealth import stealth_async
 

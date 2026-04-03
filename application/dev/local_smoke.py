@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
+
+import scrapy
+import scrapy.http
 
 from config.settings import settings
 from infrastructure.observability import message_codes as obs_mc
@@ -48,6 +53,110 @@ def _release_baseline_passing() -> dict[str, object]:
     }
 
 
+class _SmokeRabbitPublisher:
+    def __init__(self) -> None:
+        self.published: list[object] = []
+
+    async def connect(self) -> None:
+        return None
+
+    async def publish(self, event) -> None:
+        self.published.append(event)
+
+    async def close(self) -> None:
+        return None
+
+
+async def _run_scraper_db_and_publisher_smoke() -> dict[str, object]:
+    from application.ingestion.persistence_service import ScraperPersistenceService
+    from infrastructure.persistence.sqlite_store import SQLiteScraperStore
+    from infrastructure.spiders.mediapark import MediaparkSpider
+    from services.publisher.config import PublisherServiceConfig
+    from services.publisher.outbox_reader import SQLiteOutboxReader
+    from services.publisher.publication_worker import PublicationWorker
+
+    fixture = _repo_root() / "tests" / "fixtures" / "stores" / "mediapark" / "pdp_phone_reference.html"
+    product_url = "https://mediapark.uz/products/view/apple-iphone-15-pro-999001"
+    request = scrapy.Request(url=product_url)
+    response = scrapy.http.HtmlResponse(
+        url=product_url,
+        request=request,
+        status=200,
+        body=fixture.read_bytes(),
+        encoding="utf-8",
+    )
+    spider = MediaparkSpider()
+    raw = spider.full_parse_item(response)
+    if raw is None:
+        return {"pass": False, "reason": "mediapark_fixture_parse_failed"}
+
+    temp_dir = Path(tempfile.mkdtemp(prefix="moscraper-local-smoke-"))
+    try:
+        db_path = temp_dir / "local-smoke.db"
+        store = SQLiteScraperStore(db_path)
+        persistence = ScraperPersistenceService(store=store)
+        run_id = "local-smoke:mediapark"
+        persistence.start_run(
+            scrape_run_id=run_id,
+            store_name="mediapark",
+            spider_name="mediapark",
+            category_urls=list(spider.start_category_urls()),
+        )
+        persisted = persistence.persist_item(
+            raw,
+            scrape_run_id=run_id,
+            event_type=settings.SCRAPER_OUTBOX_EVENT_TYPE,
+            exchange_name=settings.RABBITMQ_EXCHANGE,
+            routing_key=settings.RABBITMQ_ROUTING_KEY,
+        )
+
+        config = PublisherServiceConfig(
+            rabbitmq_url=settings.RABBITMQ_URL,
+            exchange_name=settings.RABBITMQ_EXCHANGE,
+            exchange_type=settings.RABBITMQ_EXCHANGE_TYPE,
+            queue_name=settings.RABBITMQ_QUEUE,
+            routing_key=settings.RABBITMQ_ROUTING_KEY,
+            publish_mandatory=settings.RABBITMQ_PUBLISH_MANDATORY,
+            batch_size=10,
+            lease_seconds=settings.SCRAPER_OUTBOX_LEASE_SECONDS,
+            max_retries=settings.SCRAPER_OUTBOX_MAX_RETRIES,
+            retry_base_seconds=settings.SCRAPER_OUTBOX_RETRY_BASE_SECONDS,
+            poll_interval_seconds=settings.PUBLISHER_POLL_INTERVAL_SECONDS,
+            publisher_service_name="local-smoke-publisher",
+            scraper_db_path=str(db_path),
+        )
+        publisher = _SmokeRabbitPublisher()
+        worker = PublicationWorker(
+            config=config,
+            outbox_reader=SQLiteOutboxReader(store=store, config=config),
+            rabbit_publisher=publisher,
+        )
+        try:
+            result = await worker.run_once()
+        finally:
+            await worker.aclose()
+            persistence.close()
+
+        outbox_row = store.get_outbox_row(persisted.event_id)
+        attempts = store.get_publication_attempts(persisted.outbox_id)
+        return {
+            "pass": bool(
+                result.claimed == 1
+                and result.published == 1
+                and outbox_row is not None
+                and outbox_row.get("status") == "published"
+                and len(publisher.published) == 1
+                and len(attempts) == 1
+            ),
+            "claimed": result.claimed,
+            "published": result.published,
+            "outbox_status": None if outbox_row is None else outbox_row.get("status"),
+            "attempts": len(attempts),
+        }
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
 def run_local_smoke() -> dict[str, object]:
     """Fast layered smoke check for local DX (9B)."""
     from infrastructure.security.startup_guard import reset_startup_security_checks_for_tests
@@ -58,28 +167,29 @@ def run_local_smoke() -> dict[str, object]:
     ok_all = True
 
     try:
-        _ = settings.TRANSPORT_TYPE
+        _ = settings.SCRAPER_DB_PATH
+        _ = settings.RABBITMQ_URL
         steps.append({"step": "config_load", "pass": True})
-    except Exception as e:
+    except Exception as exc:
         ok_all = False
-        steps.append({"step": "config_load", "pass": False, "error": str(e)})
+        steps.append({"step": "config_load", "pass": False, "error": str(exc)})
 
     try:
         from infrastructure.security.startup_guard import run_startup_security_checks
 
         cfg = settings.model_copy(update={"ENABLE_SECURITY_STARTUP_VALIDATION": False})
-        r = run_startup_security_checks(cfg, force=True)
+        result = run_startup_security_checks(cfg, force=True)
         steps.append(
             {
                 "step": "security_startup",
-                "pass": bool(r.passed),
+                "pass": bool(result.passed),
                 "note": "validation disabled for smoke portability; enable in real runs",
             }
         )
-        ok_all = ok_all and r.passed
-    except Exception as e:
+        ok_all = ok_all and result.passed
+    except Exception as exc:
         ok_all = False
-        steps.append({"step": "security_startup", "pass": False, "error": str(e)})
+        steps.append({"step": "security_startup", "pass": False, "error": str(exc)})
 
     try:
         from application.release.release_gate_evaluator import evaluate_release_gates
@@ -88,49 +198,42 @@ def run_local_smoke() -> dict[str, object]:
         passed = all(g.passed for g in gates)
         steps.append({"step": "release_gates_baseline", "pass": passed, "gate_count": len(gates)})
         ok_all = ok_all and passed
-    except Exception as e:
+    except Exception as exc:
         ok_all = False
-        steps.append({"step": "release_gates_baseline", "pass": False, "error": str(e)})
-
-    laptop = _repo_root() / "tests" / "fixtures" / "regression" / "normalization" / "laptop.json"
-    try:
-        from application.dev.fixture_replay import replay_lifecycle_fixture, replay_normalization_fixture
-
-        n_out = replay_normalization_fixture(str(laptop))
-        steps.append({"step": "fixture_normalization", "pass": "normalized" in n_out})
-        ok_all = ok_all and bool(n_out.get("normalized"))
-
-        l_out = replay_lifecycle_fixture(str(laptop))
-        steps.append({"step": "lifecycle_build", "pass": "lifecycle_event" in l_out})
-        ok_all = ok_all and bool(l_out.get("lifecycle_event"))
-    except Exception as e:
-        ok_all = False
-        steps.append({"step": "fixture_normalization_or_lifecycle", "pass": False, "error": str(e)})
+        steps.append({"step": "release_gates_baseline", "pass": False, "error": str(exc)})
 
     try:
-        from infrastructure.transports.dry_run import DryRunTransport
-        from infrastructure.transports.factory import get_transport
+        from application.qa.run_store_acceptance import run_acceptance_for_store
 
-        with patch.multiple(
-            "infrastructure.transports.factory.settings",
-            MOSCRAPER_DISABLE_PUBLISH=False,
-            TRANSPORT_TYPE="crm_http",
-            DEV_MODE=True,
-            DEV_DRY_RUN_DISABLE_CRM_SEND=True,
-        ):
-            t = get_transport()
-        steps.append({"step": "transport_dry_run", "pass": isinstance(t, DryRunTransport)})
-        ok_all = ok_all and isinstance(t, DryRunTransport)
-    except Exception as e:
+        report, summary = run_acceptance_for_store("mediapark")
+        passed = bool(report.get("quality_gate_passed"))
+        steps.append(
+            {
+                "step": "store_acceptance_fixture",
+                "pass": passed,
+                "store": "mediapark",
+                "summary": summary,
+            }
+        )
+        ok_all = ok_all and passed
+    except Exception as exc:
         ok_all = False
-        steps.append({"step": "transport_dry_run", "pass": False, "error": str(e)})
+        steps.append({"step": "store_acceptance_fixture", "pass": False, "error": str(exc)})
+
+    try:
+        smoke = asyncio.run(_run_scraper_db_and_publisher_smoke())
+        steps.append({"step": "scraper_db_outbox_publisher", **smoke})
+        ok_all = ok_all and bool(smoke.get("pass"))
+    except Exception as exc:
+        ok_all = False
+        steps.append({"step": "scraper_db_outbox_publisher", "pass": False, "error": str(exc)})
 
     log_developer_experience_event(
         obs_mc.DEV_LOCAL_SMOKE_COMPLETED,
         dev_run_mode=getattr(settings, "DEV_RUN_MODE", "normal"),
         pass_ok=ok_all,
         items_count=len(steps),
-        sections_included=[str(s.get("step")) for s in steps],
+        sections_included=[str(step.get("step")) for step in steps],
         details={"steps": steps},
     )
     return {"pass": ok_all, "steps": steps}
@@ -138,9 +241,9 @@ def run_local_smoke() -> dict[str, object]:
 
 def main(argv: list[str] | None = None) -> int:
     """CLI entry for ``python -m application.dev.local_smoke``."""
-    r = run_local_smoke()
-    print(r)  # noqa: T201
-    return 0 if r.get("pass") else 1
+    result = run_local_smoke()
+    print(result)  # noqa: T201
+    return 0 if result.get("pass") else 1
 
 
 if __name__ == "__main__":

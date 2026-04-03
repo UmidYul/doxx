@@ -62,7 +62,8 @@ _APPLIANCE_PAT = re.compile(
 )
 
 _ALLOWED_CATEGORIES = frozenset(
-    {"phone", "laptop", "tv", "tablet", "appliance", "accessory", "unknown"}
+    {"phone", "laptop", "tv", "tablet", "appliance", "accessory",
+     "monitor", "gaming", "unknown"}
 )
 
 

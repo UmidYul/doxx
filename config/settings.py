@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Runtime configuration from environment variables and optional ``.env``."""
+"""Runtime configuration for the active scraper/publisher contour plus legacy migration knobs."""
 
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -18,11 +18,11 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     LOG_LEVEL: str = "INFO"
 
-    # --- Transport layer ---
+    # --- Legacy transport layer (inactive in the scraper runtime) ---
     TRANSPORT_TYPE: str = "crm_http"
     TRANSPORT_FAIL_FAST: bool = True
 
-    # --- CRM HTTP transport ---
+    # --- Legacy CRM HTTP transport ---
     CRM_BASE_URL: str = ""
     CRM_PARSER_KEY: str = ""
     CRM_SYNC_ENDPOINT: str = "/api/parser/sync"
@@ -80,14 +80,27 @@ class Settings(BaseSettings):
     PARSER_INCLUDE_IDEMPOTENCY_KEY_IN_PAYLOAD: bool = True
     CRM_SEND_IDEMPOTENCY_KEY_HEADER: bool = True
 
-    # --- Legacy RabbitMQ (TRANSPORT_TYPE=rabbitmq) ---
+    # --- Legacy in-process RabbitMQ transport (replaced by standalone publisher service) ---
     BROKER_TYPE: str = "rabbitmq"
     RABBITMQ_URL: str = "amqp://guest:guest@localhost:5672/"
     RABBITMQ_EXCHANGE: str = "moscraper.events"
     RABBITMQ_EXCHANGE_TYPE: str = "topic"
+    RABBITMQ_QUEUE: str = "scraper.products.v1"
     RABBITMQ_ROUTING_KEY: str = "listing.scraped.v1"
     RABBITMQ_PUBLISH_MANDATORY: bool = True
     MAX_PUBLISH_RETRIES: int = Field(default=0, ge=0)
+
+    # --- Scraper DB / outbox / publisher ---
+    SCRAPER_DB_PATH: str = "data/scraper/scraper.db"
+    SCRAPER_DB_BUSY_TIMEOUT_MS: int = Field(default=5000, ge=100, le=600_000)
+    SCRAPER_DB_ENABLE_WAL: bool = True
+    SCRAPER_OUTBOX_EVENT_TYPE: str = "scraper.product.scraped.v1"
+    SCRAPER_OUTBOX_BATCH_SIZE: int = Field(default=50, ge=1, le=500)
+    SCRAPER_OUTBOX_LEASE_SECONDS: int = Field(default=60, ge=5, le=3600)
+    SCRAPER_OUTBOX_MAX_RETRIES: int = Field(default=8, ge=1, le=100)
+    SCRAPER_OUTBOX_RETRY_BASE_SECONDS: int = Field(default=15, ge=1, le=3600)
+    PUBLISHER_POLL_INTERVAL_SECONDS: float = Field(default=2.0, ge=0.1, le=60.0)
+    PUBLISHER_SERVICE_NAME: str = "publisher-service"
 
     DEFAULT_CURRENCY: str = "UZS"
     MESSAGE_SCHEMA_VERSION: int = 1
@@ -114,7 +127,7 @@ class Settings(BaseSettings):
     SCRAPY_BROWSER_FALLBACK_FAILURE_THRESHOLD: int = Field(default=2, ge=1)
     SCRAPY_PROXY_FALLBACK_FAILURE_THRESHOLD: int = Field(default=1, ge=1)
 
-    STORE_NAMES: list[str] = Field(default_factory=lambda: ["mediapark"])
+    STORE_NAMES: list[str] = Field(default_factory=lambda: ["mediapark", "texnomart", "uzum", "alifshop"])
 
     # --- Spec extraction governance (3B) ---
     ENABLE_STORE_SPEC_OVERRIDES: bool = True
@@ -250,7 +263,16 @@ class Settings(BaseSettings):
     ENABLE_STORE_HOST_PINNING: bool = True
     ENABLE_CRM_HOST_PINNING: bool = True
     ALLOWED_STORE_HOSTS: list[str] = Field(
-        default_factory=lambda: ["mediapark.uz", "www.mediapark.uz", "uzum.uz", "www.uzum.uz"]
+        default_factory=lambda: [
+            "mediapark.uz",
+            "www.mediapark.uz",
+            "uzum.uz",
+            "www.uzum.uz",
+            "texnomart.uz",
+            "www.texnomart.uz",
+            "alifshop.uz",
+            "www.alifshop.uz",
+        ]
     )
     ALLOWED_CRM_HOSTS: list[str] = Field(default_factory=list)
     ALLOWED_PROXY_HOSTS: list[str] = Field(default_factory=list)

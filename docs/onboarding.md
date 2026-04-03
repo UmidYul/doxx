@@ -2,16 +2,18 @@
 
 ## What this project is
 
-**Moscraper** is a **stateless** Scrapy parser: scrape → validate → normalize → sync (CRM HTTP or broker per config). No parser-owned DB of listings. CRM owns dedup, full normalization, and long-term storage. See [`PROJECT.md`](../PROJECT.md).
+**Moscraper** is now a scraper-side ingestion system with a durable boundary:
+
+`store spider -> scraper DB -> outbox -> publisher service -> RabbitMQ`
+
+The scraper owns extraction quality, minimal structuring, and durable persistence. It does not own CRM writes, deep normalization, or cross-store merge logic.
 
 ## Run locally
 
-- Python venv, `pip install -e ".[dev]"` (or project’s documented extras).
-- Copy [`.env.example`](../.env.example) → `.env`; set `CRM_*` as needed for real CRM, or use **dry-run** (below).
-
-## Dry-run (no real CRM HTTP)
-
-Set `DEV_MODE=true`, `TRANSPORT_TYPE=crm_http`, `DEV_DRY_RUN_DISABLE_CRM_SEND=true`, `MOSCRAPER_DISABLE_PUBLISH=false`. Pipeline still builds lifecycle/apply simulation; transport does not call CRM. Details: [`DEV_WORKFLOW.md`](../DEV_WORKFLOW.md).
+- Create a venv and install `pip install -e ".[dev]"`.
+- Copy [`.env.example`](../.env.example) to `.env`.
+- Set `SCRAPER_DB_PATH`, `RABBITMQ_URL`, `RABBITMQ_EXCHANGE`, `RABBITMQ_QUEUE`, and `RABBITMQ_ROUTING_KEY`.
+- Keep `TRANSPORT_TYPE=disabled` unless you are explicitly working on legacy CRM-only modules.
 
 ## One store / one spider
 
@@ -20,16 +22,24 @@ python -m scrapy list
 python -m scrapy crawl <spider_name> -s CLOSESPIDER_ITEMCOUNT=5
 ```
 
+This writes into scraper DB and creates outbox rows. It does not publish from spider code.
+
 Validate store name: `python scripts/dev_run.py resolve <store>`.
 
-## Normalized / lifecycle / debug output
+## Publisher service
 
-With `DEV_MODE` and debug summaries enabled, logs include compact `dx_event` / `parser_dx_v1` previews. Use fixture replay for offline inspection: `application.dev.fixture_replay`. See [`DEV_WORKFLOW.md`](../DEV_WORKFLOW.md).
+Publish pending outbox rows separately:
 
-## Reproduce a bug via fixtures
+```bash
+python -m services.publisher.main --once
+python -m services.publisher.main
+```
 
-1. Find or add JSON under `tests/fixtures/`.
-2. `replay_normalization_fixture` / `replay_lifecycle_fixture` from `application.dev.fixture_replay` (no CRM).
+## Fixture-based checks
+
+- Store acceptance runner: `python -m application.qa.run_store_acceptance`
+- Unit and acceptance suites: `python -m pytest tests/unit -q` and `python -m pytest tests/acceptance -q`
+- Legacy normalization fixture replay remains in the repo only for migration/debug context; it is not the active ingestion runtime.
 
 ## Where logic lives
 
@@ -37,28 +47,29 @@ With `DEV_MODE` and debug summaries enabled, logs include compact `dx_event` / `
 |--------|-----------|
 | Spiders | `infrastructure/spiders/` |
 | Validate | `infrastructure/pipelines/validate_pipeline.py` |
-| Normalize | `infrastructure/pipelines/normalize_pipeline.py`, `application/extractors/` |
-| Lifecycle | `application/lifecycle/` |
-| Sync / transport | `infrastructure/pipelines/sync_pipeline.py`, `infrastructure/transports/` |
+| Persistence pipeline | `infrastructure/pipelines/scraper_storage_pipeline.py` |
+| Scraper DB | `infrastructure/persistence/sqlite_store.py` |
+| Publisher service | `services/publisher/` |
+| Contracts | `shared/contracts/` |
 | Observability | `infrastructure/observability/` |
 | Security | `infrastructure/security/` |
 | Release gates | `application/release/release_gate_evaluator.py` |
 
 ## Docs order (recommended)
 
-1. [`PROJECT.md`](../PROJECT.md)  
-2. [`docs/README.md`](README.md) (this index)  
-3. [`OWNERSHIP_MAP.md`](../OWNERSHIP_MAP.md)  
-4. [`docs/crm_integration.md`](crm_integration.md)  
-5. Relevant [`docs/adr/`](adr/README.md)  
-6. Store playbook: [`docs/stores/<store>.md`](stores/mediapark.md)
+1. [`PROJECT.md`](../PROJECT.md)
+2. [`docs/README.md`](README.md)
+3. [`docs/new_scraper_architecture.md`](new_scraper_architecture.md)
+4. [`docs/final_ingestion_flow.md`](final_ingestion_flow.md)
+5. Store playbook: [`docs/stores/<store>.md`](stores/mediapark.md)
+6. [`OWNERSHIP_MAP.md`](../OWNERSHIP_MAP.md)
 
-## Do not change lightly (without gates / rollout / compatibility)
+## Do not change lightly
 
-- Default lifecycle event and delta feature flags (`PARSER_*`, `CRM_*` sync semantics).
-- `entity_key`, `payload_hash`, idempotency/replay contracts.
-- Transport endpoints, signing, security modes.
-- Store rollout stages and release gate inputs.
-- Contract tests and regression fixtures for enabled stores.
+- the raw product persistence contract
+- the outbox schema and publication semantics
+- the RabbitMQ event contract
+- store-specific listing and PDP extraction behavior for enabled stores
+- acceptance fixtures and store playbooks
 
-When in doubt: run contract + unit tests, check [`docs/release_process.md`](release_process.md), and update ADRs / store playbooks if behavior changes.
+When in doubt: run unit + acceptance tests, check [`docs/release_process.md`](release_process.md), and update the relevant store playbook and architecture docs together.

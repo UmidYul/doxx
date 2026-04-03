@@ -27,11 +27,13 @@ def test_as_scrapy_item_dict_matches_raw_product_shape():
             "image_urls": ["https://i/x.jpg"],
             "description": "d",
             "category_hint": "phone",
+            "external_ids": {"sku": "sku-1"},
         }
     )
     RawProduct.model_validate(d)
     assert d["source_id"] == "99"
     assert d["category_hint"] == "phone"
+    assert d["external_ids"] == {"sku": "sku-1", "mediapark": "99"}
     assert "_category_hint" not in d["raw_specs"]
 
 

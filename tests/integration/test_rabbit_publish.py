@@ -1,15 +1,9 @@
-"""End-to-end publish check: real broker + one mediapark item.
+"""End-to-end outbox publish check: crawl one item, persist to scraper DB, publish via standalone service.
 
 Prerequisites:
-  1. RabbitMQ reachable (e.g. ``docker compose up -d rabbitmq`` from repo root).
+  1. RabbitMQ reachable (for example ``docker compose up -d rabbitmq`` from repo root).
   2. ``set MOSCRAPER_INTEGRATION_RABBIT=1`` (Windows) / ``export MOSCRAPER_INTEGRATION_RABBIT=1`` (Unix).
-  3. Network access to mediapark.uz (spider fetches a real listing).
-
-Optional: ``MOSCRAPER_INTEGRATION_RABBITMQ_URL`` overrides the broker URL (default ``amqp://guest:guest@127.0.0.1:5672/``).
-
-Run only integration tests::
-
-    pytest tests/integration -m integration -v
+  3. Network access to mediapark.uz (the spider fetches a real listing).
 """
 
 from __future__ import annotations
@@ -44,24 +38,15 @@ def _pika_connect_params():
     os.environ.get("MOSCRAPER_INTEGRATION_RABBIT") != "1",
     reason="Set MOSCRAPER_INTEGRATION_RABBIT=1 and start RabbitMQ (see module docstring).",
 )
-def test_mediapark_crawl_publishes_cloud_event_to_bound_queue() -> None:
+def test_mediapark_crawl_outbox_then_publish_to_bound_queue(tmp_path: Path) -> None:
     import pika
-    from domain.messages import CloudEventListingScraped
+    from domain.publication_event import ScraperProductEvent
 
     url = _rabbit_url()
     qname = f"moscraper_itest_{uuid.uuid4().hex[:12]}"
     exchange = "moscraper.events"
     routing_key = "listing.scraped.v1"
-
-    def _declare_bind_and_teardown_queue() -> None:
-        c = pika.BlockingConnection(_pika_connect_params())
-        try:
-            h = c.channel()
-            h.queue_delete(queue=qname, if_unused=False, if_empty=False)
-        except Exception:
-            pass
-        finally:
-            c.close()
+    db_path = tmp_path / "scraper.db"
 
     setup = pika.BlockingConnection(_pika_connect_params())
     try:
@@ -74,54 +59,60 @@ def test_mediapark_crawl_publishes_cloud_event_to_bound_queue() -> None:
 
     env = os.environ.copy()
     env["RABBITMQ_URL"] = url
-    env["MOSCRAPER_DISABLE_PUBLISH"] = "false"
     env["RABBITMQ_EXCHANGE"] = exchange
     env["RABBITMQ_EXCHANGE_TYPE"] = "topic"
     env["RABBITMQ_ROUTING_KEY"] = routing_key
     env["RABBITMQ_PUBLISH_MANDATORY"] = "true"
+    env["SCRAPER_DB_PATH"] = str(db_path)
 
-    try:
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "scrapy",
-                "crawl",
-                "mediapark",
-                "-s",
-                "CLOSESPIDER_ITEMCOUNT=1",
-                "-s",
-                "LOG_LEVEL=ERROR",
-            ],
-            cwd=REPO_ROOT,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=240,
-        )
-    except subprocess.TimeoutExpired:
-        _declare_bind_and_teardown_queue()
-        pytest.fail("scrapy crawl mediapark exceeded 240s")
+    crawl = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "scrapy",
+            "crawl",
+            "mediapark",
+            "-s",
+            "CLOSESPIDER_ITEMCOUNT=1",
+            "-s",
+            "LOG_LEVEL=ERROR",
+        ],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=240,
+    )
+    if crawl.returncode != 0:
+        pytest.skip(f"mediapark crawl failed (network or site drift). stderr tail:\n{crawl.stderr[-2500:]!s}")
 
-    if result.returncode != 0:
-        _declare_bind_and_teardown_queue()
-        pytest.skip(
-            "mediapark crawl failed (network or site change?). "
-            f"stderr tail:\n{result.stderr[-2500:]!s}"
-        )
+    publish = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "services.publisher.main",
+            "--once",
+        ],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert publish.returncode == 0, publish.stderr or publish.stdout
 
     read = pika.BlockingConnection(_pika_connect_params())
     try:
         rh = read.channel()
         method = None
         body = None
-        for _ in range(60):
+        for _ in range(30):
             method, _properties, body = rh.basic_get(queue=qname, auto_ack=True)
             if method is not None:
                 break
             time.sleep(1.0)
         else:
-            pytest.fail("no message arrived in bound queue within 60s after crawl")
+            pytest.fail("no message arrived in bound queue within 30s after outbox publish")
     finally:
         try:
             ch_del = read.channel()
@@ -131,14 +122,12 @@ def test_mediapark_crawl_publishes_cloud_event_to_bound_queue() -> None:
         read.close()
 
     assert body is not None
-    assert isinstance(body, (bytes, bytearray))
     payload = orjson.loads(body)
-
-    event = CloudEventListingScraped.model_validate(payload)
-    assert event.specversion == "1.0"
-    assert event.type == "com.moscraper.listing.scraped"
-    assert event.datacontenttype == "application/json"
-    assert event.subject == "listing"
-    assert event.data.store == "mediapark"
-    assert event.data.entity_key
-    assert event.data.url.startswith("http")
+    event = ScraperProductEvent.model_validate(payload)
+    assert event.event_type == "scraper.product.scraped.v1"
+    assert event.schema_version == 1
+    assert event.store_name == "mediapark"
+    assert event.source_url.startswith("http")
+    assert event.payload_hash.startswith("sha256:")
+    assert event.structured_payload.store_name == "mediapark"
+    assert event.publication.publisher_service

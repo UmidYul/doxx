@@ -19,12 +19,13 @@ AUTOTHROTTLE_TARGET_CONCURRENCY = 2.0
 ROBOTSTXT_OBEY = False
 COOKIES_ENABLED = True
 
-# Default: plain HTTP. Browser download handlers live in spider ``custom_settings`` only.
-# Rotating proxies: opt-in via SCRAPY_ROTATING_PROXY_ENABLED + valid PROXY_LIST_PATH (2B).
+# Active runtime: validate -> persist to scraper DB -> create outbox row.
+# Legacy normalize/sync/publish pipelines are intentionally not wired into ITEM_PIPELINES.
+# Default transport mode is plain HTTP; browser download handlers live in spider ``custom_settings`` only.
+# Rotating proxies are opt-in via SCRAPY_ROTATING_PROXY_ENABLED + valid PROXY_LIST_PATH (2B).
 ITEM_PIPELINES = {
     "infrastructure.pipelines.validate_pipeline.ValidatePipeline": 100,
-    "infrastructure.pipelines.normalize_pipeline.NormalizePipeline": 200,
-    "infrastructure.pipelines.sync_pipeline.SyncPipeline": 300,
+    "infrastructure.pipelines.scraper_storage_pipeline.ScraperStoragePipeline": 200,
 }
 
 _USE_ROTATING = should_install_rotating_proxy_middleware(app_settings)

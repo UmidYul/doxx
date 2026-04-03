@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "exchange": {
+    "name": "moscraper.events",
+    "type": "topic",
+    "durable": true
+  },
+  "queue": {
+    "name": "scraper.products.v1",
+    "durable": true
+  },
+  "routing_keys": {
+    "product_scraped": "listing.scraped.v1"
+  },
+  "ownership_boundary": {
+    "scraper_side_finishes_at": "successful_publish_to_exchange",
+    "downstream_begins_at": "queue_binding_and_consumer_processing"
+  },
+  "notes": [
+    "Publisher confirms are required.",
+    "Messages must be persistent.",
+    "Runtime queue/exchange/routing-key values mirror config.settings and publisher service defaults.",
+    "Event type remains scraper.product.scraped.v1; routing key is listing.scraped.v1."
+  ]
+}

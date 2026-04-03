@@ -8,7 +8,7 @@ from application.release import release_logger as rel_log
 from infrastructure.spiders.store_acceptance import get_store_acceptance_profile
 
 # Stores with a fixture-backed runner in application.qa.run_store_acceptance
-_ACCEPTANCE_RUNNERS: frozenset[str] = frozenset({"mediapark", "uzum"})
+_ACCEPTANCE_RUNNERS: frozenset[str] = frozenset({"mediapark", "texnomart", "uzum", "alifshop"})
 
 
 def build_store_acceptance_check(

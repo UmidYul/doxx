@@ -1,0 +1,37 @@
+<html>
+  <head>
+    <script type="application/ld+json">
+      {
+        "@context":"https://schema.org",
+        "@graph":[
+          {
+            "@type":"ProductGroup",
+            "productGroupID":"111111",
+            "name":"Demo Phone X",
+            "description":"Demo description",
+            "image":["https://images.uzum.uz/demo-group.jpg"],
+            "hasVariant":[
+              {
+                "@type":"Product",
+                "name":"Demo Phone X",
+                "sku":"123456",
+                "url":"https://uzum.uz/ru/product/demo-phone-111111?skuId=123456",
+                "offers":{"@type":"Offer","price":"4990000","availability":"https://schema.org/InStock"},
+                "brand":{"@type":"Brand","name":"DemoBrand"},
+                "additionalProperty":[
+                  {"name":"Color","value":"Black"},
+                  {"name":"Storage","value":"256 GB"}
+                ],
+                "image":["https://images.uzum.uz/demo.jpg"]
+              }
+            ]
+          }
+        ]
+      }
+    </script>
+    <meta property="og:image" content="https://images.uzum.uz/demo.jpg" />
+  </head>
+  <body>
+    <h1>Demo Phone X</h1>
+  </body>
+</html>

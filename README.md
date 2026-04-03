@@ -1,6 +1,8 @@
 # Moscraper
 
-Stateless Scrapy **parser** for Uzbekistan e‑commerce stores. Data leaves the process after **validation → normalization → lifecycle** and **sync to CRM** over **HTTP** (primary). Optional **RabbitMQ** remains a **legacy / alternate** transport when enabled.
+Scrapy-based ingestion service for Uzbekistan e-commerce stores. The active delivery boundary is now:
+
+`Store Spider -> structured raw item -> Scraper DB -> outbox -> Publisher Service -> RabbitMQ`
 
 - **Config reference:** [.env.example](.env.example) (copy to `.env`; loaded by `pydantic-settings`)
 - **Doc index:** [docs/README.md](docs/README.md)
@@ -9,10 +11,10 @@ Stateless Scrapy **parser** for Uzbekistan e‑commerce stores. Data leaves the 
 ## Current architecture (short)
 
 - **Scrapy** spiders under `infrastructure/spiders/`; store lists driven by `STORE_NAMES` / settings.
-- **Domain** rules stay free of infrastructure imports (`domain/`).
-- **Pipeline:** extract → normalize → lifecycle events → **CRM HTTP** batch/sync (default `TRANSPORT_TYPE=crm_http`).
-- **Outbound data:** structured logs, metrics, optional ETL-style status export — **no** scraper-owned DB or listing backlog (see [PROJECT.md](PROJECT.md)).
-- **RabbitMQ:** only if you set `TRANSPORT_TYPE=rabbitmq` — not the default developer path.
+- **Scraper pipeline:** validate item → persist snapshot into local scraper DB → enqueue outbox row.
+- **Publisher service:** reads unpublished outbox rows and publishes contract events to RabbitMQ with safe retry.
+- **Scraper DB:** keeps scrape runs, product snapshots, outbox state, and publication attempts for replay/debug/export.
+- **Normalization/CRM code:** still exists in the repo as legacy material, but the active runtime path is the scraper DB/outbox publisher contour.
 
 ## Quick setup
 
@@ -33,7 +35,7 @@ pip install -e ".[dev]"
 cp .env.example .env
 ```
 
-Edit `.env`: set `CRM_BASE_URL` / `CRM_PARSER_KEY` when exercising real CRM (see comments in `.env.example`). For local exploration, use dry-run below.
+Edit `.env`: set `SCRAPER_DB_PATH`, `RABBITMQ_URL`, `RABBITMQ_EXCHANGE`, `RABBITMQ_QUEUE`, and `RABBITMQ_ROUTING_KEY` for your local environment. `TRANSPORT_TYPE` should stay `disabled` for the active scraper contour; CRM settings remain legacy-only and are not part of the scraper-to-publisher runtime.
 
 ## Single-store run
 
@@ -42,17 +44,19 @@ python -m scrapy list
 python -m scrapy crawl mediapark -s CLOSESPIDER_ITEMCOUNT=5
 ```
 
-## Dry-run (no real CRM HTTP)
+## Publisher service
 
-Keep **`TRANSPORT_TYPE=crm_http`** (default). Enable dev mode and dry-run (env or `.env`):
+Run the standalone outbox publisher once:
 
 ```powershell
-$env:DEV_MODE="true"
-$env:DEV_DRY_RUN_DISABLE_CRM_SEND="true"
-python -m scrapy crawl mediapark -s CLOSESPIDER_ITEMCOUNT=3
+python -m services.publisher.main --once
 ```
 
-`DEV_DRY_RUN_DISABLE_CRM_SEND` is honored **with** `DEV_MODE=true` (see `DEV_WORKFLOW.md`).
+Run it continuously:
+
+```powershell
+python -m services.publisher.main
+```
 
 ## Local smoke & readiness
 
@@ -91,8 +95,7 @@ python -m pytest tests/acceptance -q
 | [docs/production_readiness.md](docs/production_readiness.md) | Readiness domains, evidence, `check_readiness.py`. |
 | [PROJECT.md](PROJECT.md) | Non-negotiable architecture and boundaries. |
 
-## Legacy / optional transport (RabbitMQ)
+## Delivery boundary
 
-- **Default path:** CRM HTTP (`TRANSPORT_TYPE=crm_http` in `.env.example`).
-- **Legacy path:** set `TRANSPORT_TYPE=rabbitmq` and configure `RABBITMQ_*` per `.env.example` if you still publish CloudEvents to a broker instead of (or in addition to) CRM — this is **not** the primary operator/developer workflow today.
-- Do not assume `docker compose up -d` for RabbitMQ unless you intentionally use that transport.
+- **Required boundary:** RabbitMQ. The scraper side owns data until it is durably stored in scraper DB and successfully published from outbox to RabbitMQ.
+- **Not in scope for this service:** CRM writes, deep canonical matching, multi-store merge, or final downstream normalization.
