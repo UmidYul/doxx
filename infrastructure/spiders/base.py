@@ -334,6 +334,7 @@ class BaseProductSpider(scrapy.Spider, ABC):
         meta = response.meta
         category_url = str(meta.get("category_url") or response.url)
         page = int(meta.get("page") or 1)
+        reg.note_pagination_depth(page)
 
         listing_canon = canonicalize_url(response.url)
         reg.remember_listing_page_url(listing_canon)
@@ -431,6 +432,8 @@ class BaseProductSpider(scrapy.Spider, ABC):
                 reg.record_zero_result_category(category_url)
         else:
             empty_streak = 0
+            reg.record_category_with_results(category_url)
+        reg.listing_cards_seen_total += extracted_count
 
         self.log_empty_listing_page(
             response,
@@ -440,9 +443,23 @@ class BaseProductSpider(scrapy.Spider, ABC):
         )
         reg.record_listing_stats(listing_url=response.url, product_urls_found=extracted_count)
 
+        page_seen_urls: set[str] = set()
+        page_seen_source_ids: set[str] = set()
+
         for u in abs_urls:
             c = self.canonicalize_product_url(u)
+            sid = self.extract_source_id_from_url(c)
             reg.product_urls_seen_total += 1
+            if c in page_seen_urls or (sid and sid in page_seen_source_ids):
+                reg.product_urls_deduped_total += 1
+                self._crawl_event(
+                    "PRODUCT_DEDUPED",
+                    category_url=category_url,
+                    page=page,
+                    canonical_url=c,
+                    reason="page_duplicate",
+                )
+                continue
             if self.should_skip_product_url(c):
                 reg.product_urls_deduped_total += 1
                 self._crawl_event(
@@ -453,15 +470,25 @@ class BaseProductSpider(scrapy.Spider, ABC):
                     reason="url_or_source_id_seen",
                 )
                 continue
-            reg.remember_product_url(c)
-            sid = self.extract_source_id_from_url(c)
-            if sid:
-                reg.remember_source_id(sid)
             pr = self.schedule_product_request(
                 u,
                 response=response,
                 meta=dict(meta),
             )
+            if pr is None:
+                self._crawl_event(
+                    "PRODUCT_SCHEDULE_BLOCKED",
+                    category_url=category_url,
+                    page=page,
+                    canonical_url=c,
+                    reason="resource_or_policy_gate",
+                )
+                continue
+            reg.remember_product_url(c)
+            page_seen_urls.add(c)
+            if sid:
+                reg.remember_source_id(sid)
+                page_seen_source_ids.add(sid)
             if pr is not None:
                 yield pr
 

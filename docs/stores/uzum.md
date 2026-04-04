@@ -17,6 +17,7 @@ Uzum follows the same ingestion boundary as the other stores:
 - The spider opens category pages with Playwright and mirrors hydrated `/product/` anchors into a hidden DOM snapshot before Scrapy serializes `response.text`.
 - It scrolls the page in controlled steps to surface lazy-loaded product tiles.
 - Pagination is synthetic through the `page=` query parameter when an explicit next link is absent.
+- Uzum-specific duplicate listing signatures intentionally ignore the `page` number. This stops bounded runs from burning through 10+ synthetic pages when Uzum serves the same 48-card shell behind different `page=` URLs.
 - Category traversal stays restricted to electronics-friendly URLs through `is_electronics_category_url(...)`, then further narrows to high-value smartphone branches.
 - Low-value / misleading phone branches like `smartfony-i-telefony-*`, `knopochnye-telefony-*`, `smartfony-android-*`, `smartfony-apple-iphoneios-*`, `smartfony-na-drugikh-os-*`, and `vosstanovlennye-smartfony-*` are intentionally skipped for bounded QA runs because they produced zero-result or off-target pages in live traffic.
 
@@ -25,12 +26,14 @@ Uzum follows the same ingestion boundary as the other stores:
 - PDP recognition uses `/product/...` path checks.
 - `source_id` prefers `skuId`, then numeric path suffixes.
 - PDPs now use plain HTTP by default; Playwright remains reserved for listing hydration and browser-only fallback cases.
+- Uzum product URLs bounce through `id.uzum.uz` (`302 -> 303 -> same PDP URL`) before returning the final HTML. Store-local product requests therefore use `dont_filter=True` so Scrapy's redirect middleware can land back on the same PDP URL without being killed by the global dupefilter.
 - The source of truth is JSON-LD first:
   - `ProductGroup.hasVariant[]` matching the current `skuId`
   - then direct `Product` JSON-LD
   - then HTML/meta fallbacks
 - `ProductGroup` data is merged with the matching variant so the spider keeps variant price, availability, images, and `additionalProperty`, while still inheriting group-level description and shared images.
 - Output stays minimal and is sent to the scraper persistence pipeline without typed normalization.
+- Product URLs are only marked as seen after the request is actually admitted into the scheduler. If resource governance blocks a PDP on one listing page, the same PDP can still be retried later instead of being lost as a false duplicate.
 
 ## What gets saved
 
@@ -62,6 +65,7 @@ Uzum follows the same ingestion boundary as the other stores:
 - Browser concurrency must stay conservative or the store becomes flaky.
 - Some product details appear only in `ProductGroup` JSON-LD, not in visible DOM blocks.
 - A few discovered subcategories still lead to weak or empty shells if Uzum changes live taxonomy faster than the allowlist.
+- Uzum can still expose the same listing cards across several synthetic `page=` URLs; the spider now stops earlier on repeated shells, but live pagination drift remains a coverage risk.
 - PDP timeout risk is lower now that product pages stay plain HTTP first, but browser fallback paths can still be slower than HTTP-first stores.
 - Python 3.14 + `scrapy-playwright` can still emit teardown noise (`Task was destroyed but it is pending` / `Event loop is closed`) even when the crawl itself succeeds.
 

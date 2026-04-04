@@ -23,6 +23,23 @@ _ID_QUERY_RE = ("sku", "skuId", "product_id", "id")
 _PRICE_NUM_RE = re.compile(r"(\d[\d\s]{2,})")
 _SUM_TEXT_RE = re.compile(r"[^<]{0,40}\d[\d\s]{2,}[^<]{0,20}(?:сум|sum|so'm)", re.I)
 _PLAYWRIGHT_HANDLER = "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler"
+_TECH_CATEGORY_HINTS = (
+    "smartfon",
+    "telefon",
+    "phone",
+    "noutbuk",
+    "laptop",
+    "planshet",
+    "tablet",
+    "televizor",
+    "tv",
+    "monitor",
+    "gaming",
+)
+_LOW_VALUE_CATEGORY_HINTS = (
+    "aksessuary-dlya-telefonov",
+    "knopochnye-telefony",
+)
 
 
 class TexnomartSpider(BaseProductSpider):
@@ -50,9 +67,11 @@ class TexnomartSpider(BaseProductSpider):
     }
 
     def start_category_urls(self) -> tuple[str, ...]:
-        # Phase 1: phones only.
         return (
             "https://texnomart.uz/ru/katalog/smartfony/",
+            "https://texnomart.uz/ru/katalog/noutbuki/",
+            "https://texnomart.uz/ru/katalog/planshety/",
+            "https://texnomart.uz/ru/katalog/televizory/",
         )
 
     def is_product_page(self, response: scrapy.http.Response) -> bool:
@@ -119,8 +138,6 @@ class TexnomartSpider(BaseProductSpider):
             ):
                 candidates.append(full)
 
-        # Phase 1: only follow subcategory links related to phones
-        _phone_slugs = ("smartfon", "telefon", "phone")
         current = urlparse(response.url).path.rstrip("/")
         seen: set[str] = set()
         out: list[str] = []
@@ -132,7 +149,9 @@ class TexnomartSpider(BaseProductSpider):
             if path in seen:
                 continue
             path_lower = path.lower()
-            if not any(slug in path_lower for slug in _phone_slugs):
+            if any(slug in path_lower for slug in _LOW_VALUE_CATEGORY_HINTS):
+                continue
+            if not any(slug in path_lower for slug in _TECH_CATEGORY_HINTS):
                 continue
             seen.add(path)
             out.append(path)
@@ -150,7 +169,7 @@ class TexnomartSpider(BaseProductSpider):
         if not self.extract_listing_product_urls(response):
             return None
         parsed = urlparse(response.url)
-        if "/catalog/" not in parsed.path:
+        if "/catalog/" not in parsed.path and "/katalog/" not in parsed.path:
             return None
         query = parse_qs(parsed.query)
         page = int(query.get("page", ["1"])[0] or "1")

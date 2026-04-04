@@ -19,6 +19,16 @@ _PRICE_NUM_RE = re.compile(r"(\d[\d\s\u00a0]{3,})")
 _SUM_TEXT_RE = re.compile(r"(\d[\d\s\u00a0]{3,})\s*(?:сум|sum|so['\u2019]?m)", re.I)
 
 
+_ALIFSHOP_SMARTPHONE_PREFIX = "/ru/categories/smartfoni-"
+_ALIFSHOP_LOW_VALUE_CATEGORY_HINTS = (
+    "/ru/categories/aksessuari-",
+    "/ru/categories/chehli-",
+    "/ru/categories/coputstvuyuschie-",
+    "/ru/categories/smartfoni-i-gadzheti",
+    "/ru/categories/smartfoni-i-telefoni",
+)
+
+
 class AlifshopSpider(BaseProductSpider):
     """Alifshop spider: category -> listing -> moderated-offer PDP with minimal structuring."""
 
@@ -37,6 +47,9 @@ class AlifshopSpider(BaseProductSpider):
         return (
             "https://alifshop.uz/ru/categories/smartfoni-apple",
             "https://alifshop.uz/ru/categories/smartfoni-samsung",
+            "https://alifshop.uz/ru/categories/smartfoni-xiaomi",
+            "https://alifshop.uz/ru/categories/smartfoni-honor",
+            "https://alifshop.uz/ru/categories/smartfoni-tecno",
         )
 
     def is_product_page(self, response: scrapy.http.Response) -> bool:
@@ -105,7 +118,6 @@ class AlifshopSpider(BaseProductSpider):
                 if "alifshop.uz" in parsed.netloc and "/categories/" in path and not _PRODUCT_PATH_RE.search(path):
                     candidates.append(full)
 
-        phone_slugs = ("smartfon", "telefon", "iphone")
         current = urlparse(response.url).path.rstrip("/")
         seen: set[str] = set()
         out: list[str] = []
@@ -113,7 +125,10 @@ class AlifshopSpider(BaseProductSpider):
             path = urlparse(url).path.rstrip("/")
             if not path or path == current or path in seen:
                 continue
-            if not any(slug in path.lower() for slug in phone_slugs):
+            path_lower = path.lower()
+            if any(low_value in path_lower for low_value in _ALIFSHOP_LOW_VALUE_CATEGORY_HINTS):
+                continue
+            if not path_lower.startswith(_ALIFSHOP_SMARTPHONE_PREFIX):
                 continue
             seen.add(path)
             out.append(path)

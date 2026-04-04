@@ -199,6 +199,20 @@ def test_texnomart_listing_extracts_nested_category_urls():
     assert all(c.startswith("/ru/") for c in categories)
 
 
+def test_texnomart_listing_synthesizes_next_page_for_katalog_paths():
+    from infrastructure.spiders.texnomart import TexnomartSpider
+
+    spider = TexnomartSpider()
+    html = b"""
+    <html><body>
+      <a href="/ru/product/detail/111111/">one</a>
+      <a href="/ru/product/detail/222222/">two</a>
+    </body></html>
+    """
+    resp = scrapy.http.HtmlResponse(url="https://texnomart.uz/ru/katalog/smartfony/", body=html)
+    assert spider.extract_next_page_url(resp) == "https://texnomart.uz/ru/katalog/smartfony/?page=2"
+
+
 def test_texnomart_pdp_json_ld_parsing_smoke():
     from infrastructure.spiders.texnomart import TexnomartSpider
 

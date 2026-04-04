@@ -48,11 +48,11 @@ def _uzum() -> StoreResourceBudget:
         max_listing_requests=4,
         max_product_requests=5,
         max_batch_inflight=2,
-        max_retryable_queue=120,
+        max_retryable_queue=80,
         max_browser_pages=3,
         max_proxy_requests=4,
-        max_memory_mb=512,
-        notes=["browser_store_lower_http_concurrency", "playwright_parallel_headroom"],
+        max_memory_mb=448,
+        notes=["browser_listing_plain_pdp_mix", "balanced_for_bounded_quality_runs"],
     )
 
 

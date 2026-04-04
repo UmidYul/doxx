@@ -104,6 +104,43 @@ def test_duplicate_source_id_second_url_skipped():
     assert spider.crawl_registry.product_urls_deduped_total == 1
 
 
+def test_blocked_product_url_not_marked_seen_and_can_retry_next_listing(monkeypatch: pytest.MonkeyPatch):
+    spider = _FrameworkSpider()
+    spider._crawl_registry_ref = None
+    attempts = {"count": 0}
+
+    def _schedule(url: str, *, response: scrapy.http.Response, meta: dict[str, Any]):
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            return None
+        return scrapy.Request(response.urljoin(url), meta=meta)
+
+    monkeypatch.setattr(spider, "schedule_product_request", _schedule)
+
+    r1 = _listing_response(
+        "http://example.com/cat",
+        meta={
+            "inject_urls": ["http://example.com/p/1"],
+            "inject_next": None,
+            "page": 1,
+        },
+    )
+    out1 = list(spider.parse_listing(r1))
+    assert out1 == []
+
+    r2 = _listing_response(
+        "http://example.com/cat?page=2",
+        meta={
+            "inject_urls": ["http://example.com/p/1"],
+            "inject_next": None,
+            "page": 2,
+        },
+    )
+    out2 = list(spider.parse_listing(r2))
+    assert len(out2) == 1
+    assert spider.crawl_registry.product_urls_deduped_total == 0
+
+
 def test_should_stop_pagination_empty_repeats():
     spider = _FrameworkSpider()
     with (

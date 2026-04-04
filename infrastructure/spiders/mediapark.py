@@ -39,6 +39,36 @@ _PHONE_CATEGORY_SLUGS: frozenset[str] = frozenset(
         "smartfony-po-brendu",
     }
 )
+_TECH_CATEGORY_SLUGS: frozenset[str] = frozenset(
+    {
+        "smartfon",
+        "smartfony",
+        "telefon",
+        "telefony",
+        "smartfony-po-brendu",
+        "noutbuk",
+        "noutbuki",
+        "ultrabuk",
+        "planshet",
+        "planshety",
+        "tablet",
+        "televizor",
+        "televizory",
+        "tv",
+        "monitor",
+        "smart-chasy",
+        "gadzhety",
+    }
+)
+_LOW_VALUE_CATEGORY_SLUGS: frozenset[str] = frozenset(
+    {
+        "telefony-17",
+        "telefonlar-17",
+        "2-sim-karty",
+        "smartfon-v-rassrochku",
+        "smartfony-telefony-planshety-i-gadzhety",
+    }
+)
 _PRODUCT_URL_RE = re.compile(r"https?://[^/]+/products/view/[^/?#]+", re.I)
 _PRODUCT_PATH_RE = re.compile(r"/products/view/[a-z0-9-]+-\d+", re.I)
 _CATEGORY_URL_RE = re.compile(r"https?://[^/]+/products/category/[^\"'\s<>]+", re.I)
@@ -82,9 +112,9 @@ class MediaparkSpider(BaseProductSpider):
     def start_category_urls(self) -> tuple[str, ...]:
         return (
             "https://mediapark.uz/products/category/telefony-17/smartfony-40",
-            "https://mediapark.uz/products/category/smartfony-po-brendu-660/smartfony-samsung-210",
-            "https://mediapark.uz/products/category/smartfony-po-brendu-660/smartfony-huawei-363",
-            "https://mediapark.uz/products/category/smartfony-po-brendu-660/smartfony-apple-iphone-211",
+            "https://mediapark.uz/products/category/noutbuki-i-ultrabuki-22/noutbuki-313",
+            "https://mediapark.uz/products/category/televizory-i-smart-televizory-8/televizory-307",
+            "https://mediapark.uz/products/category/gadzhety-18/smart-chasy-51",
         )
 
     def is_product_page(self, response: scrapy.http.Response) -> bool:
@@ -202,7 +232,7 @@ class MediaparkSpider(BaseProductSpider):
         )
         candidates.extend(_CATEGORY_URL_RE.findall(normalized_html))
 
-        current_path = urlsplit(current_url).path.rstrip("/")
+        current_path = self._normalize_category_path(urlsplit(current_url).path)
         category_paths: set[str] = set()
         for candidate in candidates:
             clean = candidate.strip().strip('"').rstrip("\\").rstrip(",")
@@ -210,14 +240,25 @@ class MediaparkSpider(BaseProductSpider):
             parts = urlsplit(absolute)
             if "mediapark.uz" not in parts.netloc:
                 continue
-            path = parts.path.rstrip("/")
+            path = self._normalize_category_path(parts.path)
             if not path or path == current_path or "/products/category/" not in path:
                 continue
             lowered = path.lower()
-            if not any(slug in lowered for slug in _PHONE_CATEGORY_SLUGS):
+            if any(slug in lowered for slug in _LOW_VALUE_CATEGORY_SLUGS):
+                continue
+            if not any(slug in lowered for slug in _TECH_CATEGORY_SLUGS):
                 continue
             category_paths.add(path)
         return sorted(category_paths)
+
+    @staticmethod
+    def _normalize_category_path(path: str) -> str:
+        clean = path.replace("\\", "/").rstrip("/")
+        if clean.startswith("/ru/"):
+            clean = clean[3:]
+        elif clean.startswith("/uz/"):
+            clean = clean[3:]
+        return clean
 
     @staticmethod
     def _build_paginated_url(category_url: str, page: int) -> str:

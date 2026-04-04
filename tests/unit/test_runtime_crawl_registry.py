@@ -33,10 +33,17 @@ def test_listing_signature(reg: CrawlRuntimeRegistry) -> None:
 
 def test_snapshot_metrics(reg: CrawlRuntimeRegistry) -> None:
     reg.categories_started_total = 2
+    reg.record_category_with_results("https://mediapark.uz/products/category/phones")
+    reg.listing_cards_seen_total = 12
+    reg.note_pagination_depth(3)
     reg.product_urls_deduped_total = 5
     reg.note_product_asset_coverage(has_specs=True, has_images=False)
     snap = reg.snapshot_metrics()
     assert snap["store"] == "mediapark"
+    assert snap["categories_seeded_total"] == 2
+    assert snap["categories_with_results_total"] == 1
+    assert snap["listing_cards_seen_total"] == 12
+    assert snap["pagination_depth_max"] == 3
     assert snap["categories_started_total"] == 2
     assert snap["product_urls_deduped_total"] == 5
     assert snap["products_with_specs_total"] == 1

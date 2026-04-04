@@ -4,6 +4,7 @@ import importlib.util
 from pathlib import Path
 
 import pytest
+import scrapy
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRAPY_SETTINGS = REPO_ROOT / "config" / "scrapy_settings.py"
@@ -31,10 +32,12 @@ def test_uzum_registers_playwright_handlers_only_on_spider():
     assert handlers["https"].endswith("ScrapyPlaywrightDownloadHandler")
 
 
-def test_uzum_start_request_uses_playwright_meta():
+def test_uzum_start_request_uses_playwright_meta(monkeypatch: pytest.MonkeyPatch):
     from infrastructure.spiders.uzum import UzumSpider
+    from config.settings import settings
 
     spider = UzumSpider()
+    monkeypatch.setattr(settings, "ENABLE_RESOURCE_GOVERNANCE", False)
 
     class _S:
         def get(self, key, default=None):
@@ -49,10 +52,12 @@ def test_uzum_start_request_uses_playwright_meta():
     assert any("/category/smartfony-12690" in r.url for r in reqs)
 
 
-def test_uzum_listing_request_injects_snapshot_anchors():
+def test_uzum_listing_request_injects_snapshot_anchors(monkeypatch: pytest.MonkeyPatch):
     from infrastructure.spiders.uzum import UzumSpider
+    from config.settings import settings
 
     spider = UzumSpider()
+    monkeypatch.setattr(settings, "ENABLE_RESOURCE_GOVERNANCE", False)
 
     class _S:
         def get(self, key, default=None):
@@ -70,8 +75,6 @@ def test_uzum_listing_request_injects_snapshot_anchors():
 
 
 def test_uzum_product_requests_stay_plain_http_by_default():
-    import scrapy
-
     from infrastructure.spiders.uzum import UzumSpider
 
     spider = UzumSpider()
@@ -91,11 +94,41 @@ def test_uzum_product_requests_stay_plain_http_by_default():
     req = spider.schedule_product_request(
         "https://uzum.uz/ru/product/demo-phone-111111?skuId=123456",
         response=listing,
-        meta={"category_url": listing.url, "page": 1},
+        meta={
+            "category_url": listing.url,
+            "page": 1,
+            "force_browser": True,
+            "playwright": True,
+            "playwright_page_methods": ["should be stripped"],
+        },
     )
     assert req is not None
     assert req.meta.get("playwright") is None
     assert req.meta.get("access_mode_selected") == "plain"
+    assert req.meta.get("force_browser") is None
+    assert req.priority == 20
+    assert req.dont_filter is True
+
+
+def test_uzum_duplicate_listing_signature_ignores_page_number():
+    from infrastructure.spiders.uzum import UzumSpider
+
+    spider = UzumSpider()
+    urls = [
+        "https://uzum.uz/ru/product/demo-phone-111111?skuId=123456",
+        "https://uzum.uz/ru/product/demo-phone-222222?skuId=234567",
+    ]
+    r1 = scrapy.http.HtmlResponse(
+        url="https://uzum.uz/ru/category/smartfony-12690?page=1",
+        request=scrapy.Request("https://uzum.uz/ru/category/smartfony-12690?page=1"),
+        body=b"<html></html>",
+    )
+    r2 = scrapy.http.HtmlResponse(
+        url="https://uzum.uz/ru/category/smartfony-12690?page=2",
+        request=scrapy.Request("https://uzum.uz/ru/category/smartfony-12690?page=2"),
+        body=b"<html></html>",
+    )
+    assert spider.build_listing_signature(r1, urls, 1) == spider.build_listing_signature(r2, urls, 2)
 
 
 @pytest.mark.skipif(

@@ -16,10 +16,12 @@ class CrawlRuntimeRegistry:
         self._seen_listing_signatures: OrderedDict[str, bool] = OrderedDict()
         self._seen_canonical_listing_urls: OrderedDict[str, bool] = OrderedDict()
         self._zero_result_categories: set[str] = set()
+        self._categories_with_results: set[str] = set()
         self._listing_to_product_counts: OrderedDict[str, int] = OrderedDict()
 
         # Metrics (also logged via spider structured events)
         self.categories_started_total: int = 0
+        self.listing_cards_seen_total: int = 0
         self.categories_zero_result_total: int = 0
         self.listing_pages_seen_total: int = 0
         self.listing_pages_duplicated_total: int = 0
@@ -29,6 +31,7 @@ class CrawlRuntimeRegistry:
         self.product_parse_partial_total: int = 0
         self.product_parse_failed_total: int = 0
         self.product_items_yielded_total: int = 0
+        self.pagination_depth_max: int = 0
         self.products_with_specs_total: int = 0
         self.products_without_specs_total: int = 0
         self.products_with_images_total: int = 0
@@ -122,6 +125,10 @@ class CrawlRuntimeRegistry:
         self._zero_result_categories.add(category_url)
         self.categories_zero_result_total += 1
 
+    def record_category_with_results(self, category_url: str) -> None:
+        if category_url:
+            self._categories_with_results.add(category_url)
+
     def record_listing_stats(self, *, listing_url: str, product_urls_found: int) -> None:
         self._listing_to_product_counts[listing_url] = product_urls_found
         self._listing_to_product_counts.move_to_end(listing_url)
@@ -130,23 +137,32 @@ class CrawlRuntimeRegistry:
             while len(self._listing_to_product_counts) > max_n:
                 self._listing_to_product_counts.popitem(last=False)
 
+    def note_pagination_depth(self, page: int) -> None:
+        if page > self.pagination_depth_max:
+            self.pagination_depth_max = page
+
     def snapshot_metrics(self) -> dict[str, int | str]:
         total_pages_visited = self.listing_pages_seen_total + self.product_pages_seen_total
         specs_seen = self.products_with_specs_total + self.products_without_specs_total
         images_seen = self.products_with_images_total + self.products_without_images_total
         return {
             "store": self.store,
+            "categories_seeded_total": self.categories_started_total,
             "categories_started_total": self.categories_started_total,
+            "categories_with_results_total": len(self._categories_with_results),
             "categories_zero_result_total": self.categories_zero_result_total,
             "listing_pages_seen_total": self.listing_pages_seen_total,
+            "listing_cards_seen_total": self.listing_cards_seen_total,
             "pages_visited_total": total_pages_visited,
             "listing_pages_duplicated_total": self.listing_pages_duplicated_total,
+            "pagination_depth_max": self.pagination_depth_max,
             "product_urls_seen_total": self.product_urls_seen_total,
             "product_urls_deduped_total": self.product_urls_deduped_total,
             "product_pages_seen_total": self.product_pages_seen_total,
             "product_parse_partial_total": self.product_parse_partial_total,
             "product_parse_failed_total": self.product_parse_failed_total,
             "failed_pdp_total": self.product_parse_failed_total,
+            "items_dropped_total": self.product_parse_failed_total,
             "product_items_yielded_total": self.product_items_yielded_total,
             "scraped_items_total": self.product_items_yielded_total,
             "products_with_specs_total": self.products_with_specs_total,

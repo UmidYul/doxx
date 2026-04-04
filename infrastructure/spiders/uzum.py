@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from typing import Any
@@ -30,6 +31,9 @@ _UZUM_SUM_TEXT_RE = re.compile(
 _UZUM_PRODUCT_HREF_TEXT_RE = re.compile(r'["\'](/(?:ru/)?product/[^"\']+)["\']', re.I)
 _UZUM_PRODUCT_ESCAPED_HREF_TEXT_RE = re.compile(r"\\/(?:ru\\/)?product\\/[^\"'\\s]+", re.I)
 _UZUM_PRIMARY_SMARTPHONE_CATEGORY_URL = "https://uzum.uz/ru/category/smartfony-12690"
+_UZUM_LAPTOP_CATEGORY_URL = "https://uzum.uz/ru/category/noutbuki-15718"
+_UZUM_TABLET_CATEGORY_URL = "https://uzum.uz/ru/category/planshety-i-elektronnye-knigi-15716"
+_UZUM_TV_CATEGORY_URL = "https://uzum.uz/ru/category/televizory-12601"
 _UZUM_PHONE_CATEGORY_HINTS = (
     "smartfon",
     "iphone",
@@ -47,6 +51,19 @@ _UZUM_PHONE_CATEGORY_HINTS = (
     "nothing",
     "oneplus",
 )
+_UZUM_TECH_CATEGORY_HINTS = _UZUM_PHONE_CATEGORY_HINTS + (
+    "noutbuk",
+    "macbook",
+    "laptop",
+    "planshet",
+    "tablet",
+    "ipad",
+    "televizor",
+    "smart-tv",
+    "tv",
+    "umnye-chasy",
+    "smart-chasy",
+)
 _UZUM_LOW_VALUE_CATEGORY_HINTS = (
     "smartfony-i-telefony",
     "knopochnye-telefony",
@@ -57,6 +74,21 @@ _UZUM_LOW_VALUE_CATEGORY_HINTS = (
     "smartfony-apple-iphoneios",
     "smartfony-na-drugikh-os",
     "vosstanovlennye-smartfony",
+    "aksessuary",
+    "aksessuary-i-zapchasti",
+    "zapchasti-i-remont",
+    "aksessuary-dlya-noutbukov",
+    "kabeli-i-perekhodniki",
+    "oborudovanie-dlya-televizorov",
+    "aksessuary-dlya-prosmotra",
+    "kompyuternaya-tekhnika",
+    "kompyuternaya-periferiya",
+    "periferiya-i-aksessuary",
+    "komplektuyuschie-dlya-kompyuternoj-tekhniki",
+    "naushniki-i-audiotekhnika",
+    "audiotekhnika",
+    "noutbuki-planshety-i-elektronnye",
+    "televizory-i-videotekhnika",
 )
 _UZUM_LISTING_SNAPSHOT_JS = """
 (() => {
@@ -110,18 +142,18 @@ class UzumSpider(BaseProductSpider):
             }
         },
         # Conservative browser parallelism reduces flaky DNS/timeouts on heavy pages.
-        "CONCURRENT_REQUESTS": 3,
+        "CONCURRENT_REQUESTS": 8,
         "RETRY_TIMES": 4,
         "DOWNLOAD_TIMEOUT": 90,
         "DOWNLOAD_DELAY": 1.0,
     }
 
     def start_category_urls(self) -> tuple[str, ...]:
-        # ``smartfony-12690`` is the live branch that consistently hydrates real
-        # smartphone PDP anchors. The broader electronics root mixes in low-value
-        # accessories during bounded QA runs and degrades product quality.
         return (
             _UZUM_PRIMARY_SMARTPHONE_CATEGORY_URL,
+            _UZUM_LAPTOP_CATEGORY_URL,
+            _UZUM_TABLET_CATEGORY_URL,
+            _UZUM_TV_CATEGORY_URL,
         )
 
     def schedule_safe_request(
@@ -166,6 +198,7 @@ class UzumSpider(BaseProductSpider):
                 PageMethod("evaluate", "window.scrollTo(0, document.body.scrollHeight)"),
                 PageMethod("wait_for_timeout", 2000),
                 PageMethod("wait_for_timeout", 2500),
+                PageMethod("wait_for_timeout", 5000),
                 PageMethod("evaluate", _UZUM_LISTING_SNAPSHOT_JS),
             ]
         else:
@@ -261,7 +294,7 @@ class UzumSpider(BaseProductSpider):
             path_lower = path.lower()
             if any(slug in path_lower for slug in _UZUM_LOW_VALUE_CATEGORY_HINTS):
                 continue
-            if not any(slug in path_lower for slug in _UZUM_PHONE_CATEGORY_HINTS):
+            if not any(slug in path_lower for slug in _UZUM_TECH_CATEGORY_HINTS):
                 continue
             seen.add(path)
             out.append(path)
@@ -287,6 +320,25 @@ class UzumSpider(BaseProductSpider):
         q["page"] = [str(page + 1)]
         new_query = urlencode({k: v[0] for k, v in q.items()})
         return urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", new_query, ""))
+
+    def build_listing_signature(
+        self,
+        response: scrapy.http.Response,
+        canonical_product_urls: list[str],
+        page: int,
+    ) -> str:
+        # Uzum frequently serves the same hydrated card set behind incrementing
+        # ``page=`` URLs. Ignore the page number so repeated 48-card shells trip
+        # the duplicate-listing guard instead of burning the whole bounded run.
+        head = sorted(canonical_product_urls[:24])
+        blob = {
+            "path": urlparse(response.url).path.rstrip("/"),
+            "head_urls": head,
+            "total_links": len(canonical_product_urls),
+        }
+        return hashlib.sha256(
+            json.dumps(blob, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
 
     def extract_source_id_from_url(self, url: str) -> str | None:
         parsed = urlparse(url)
@@ -330,6 +382,45 @@ class UzumSpider(BaseProductSpider):
             "image_urls": image_urls,
             "category_hint": self.extract_category_hint(response, title),
         }
+
+    def schedule_product_request(
+        self,
+        url: str,
+        *,
+        response: scrapy.http.Response,
+        meta: dict[str, Any],
+    ) -> scrapy.http.Request | None:
+        # Product pages inherit listing meta in ``BaseProductSpider``. On Uzum that
+        # would wrongly carry ``force_browser=True`` from category pages and collapse
+        # product throughput back to Playwright-only mode. Keep browser on listings,
+        # but reset PDP requests to plain-first.
+        clean_meta = dict(meta)
+        for key in (
+            "force_browser",
+            "playwright",
+            "playwright_include_page",
+            "playwright_context",
+            "playwright_page_methods",
+            "playwright_page_goto_kwargs",
+            "playwright_page_init_callback",
+        ):
+            clean_meta.pop(key, None)
+        abs_url = response.urljoin(url.strip())
+        canon = self.canonicalize_product_url(abs_url)
+        pm = {
+            **clean_meta,
+            "from_listing": response.url,
+        }
+        req = self.schedule_safe_request(
+            canon,
+            callback=self.parse,
+            purpose="product",
+            meta=pm,
+            priority=20,
+        )
+        if req is None:
+            return None
+        return req.replace(dont_filter=True)
 
     def extract_category_hint(
         self,

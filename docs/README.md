@@ -34,6 +34,7 @@ Entry point for the active Moscraper ingestion architecture: store scraping, scr
 - [`ingestion_architecture.md`](ingestion_architecture.md) - scraper-side delivery contract and outbox model
 - [`final_ingestion_flow.md`](final_ingestion_flow.md) - final active contour
 - [`crm_integration.md`](crm_integration.md) - legacy CRM-facing material kept only for migration context
+- [`rabbitmq_crm_integration.md`](rabbitmq_crm_integration.md) - practical CRM consumer guide for RabbitMQ integration
 
 ## Lifecycle, observability, and release
 
