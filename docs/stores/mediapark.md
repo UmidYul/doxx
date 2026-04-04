@@ -12,9 +12,14 @@ Deep dive: [`mediapark_new.md`](mediapark_new.md).
 
 ## Listing flow
 
-- Category seeds come from `start_category_urls()`.
+- Category seeds come from `start_category_urls()` and now cover four high-yield tech branches instead of the earlier phone-only entrypoint:
+  - `smartfony-40`
+  - `noutbuki-313`
+  - `televizory-307`
+  - `smart-chasy-51`
 - Listing discovery scans anchors plus escaped inline payloads for `/products/view/...` URLs.
-- Nested category traversal follows `/products/category/...` hubs, but stays constrained to the target phone family.
+- Nested category traversal follows `/products/category/...` hubs, but now stays constrained to broader tech branches rather than only the phone family.
+- Low-yield / noisy branches like generic `telefony-17`, installment-only phone hubs, and duplicate umbrella gadgets paths are filtered out to keep bounded runs focused on product-bearing tech listings.
 - Pagination is synthetic and defensive: the spider mutates `page=` and stops on repeated empty or duplicate listings.
 
 ## PDP flow
@@ -66,6 +71,7 @@ This keeps scraper output raw and store-native while avoiding deep normalization
 - MediaPark periodically changes Next.js payload shape.
 - Partial PDP renders can hide specs until later in the DOM or embedded scripts.
 - Russian and Latin spec labels are mixed, so raw fidelity is more important than aggressive normalization inside the scraper.
+- Listing-side anti-bot noise still appears intermittently, so some seeded categories can report challenge responses even when PDP parsing and persistence remain healthy.
 
 ## Intentionally left downstream
 
@@ -80,11 +86,11 @@ This keeps scraper output raw and store-native while avoiding deep normalization
 - Cross-store ingestion matrix: `tests/acceptance/test_store_ingestion_matrix.py`
 - Reference status: MediaPark is the baseline store to compare future migrations against.
 
-Bounded QA run:
+Expanded bounded QA run:
 
 ```powershell
-$env:SCRAPER_DB_PATH='data/scraper/qa/mediapark_qa.db'
-.\.venv\Scripts\python.exe -m scrapy crawl mediapark -s CLOSESPIDER_ITEMCOUNT=5 -s CLOSESPIDER_PAGECOUNT=25 -L INFO
+$env:SCRAPER_DB_PATH='data/scraper/qa/mediapark_expanded.db'
+.\.venv\Scripts\python.exe -m scrapy crawl mediapark -s CLOSESPIDER_ITEMCOUNT=12 -s CLOSESPIDER_PAGECOUNT=30 -L INFO
 ```
 
 What to verify after the run:
@@ -92,4 +98,5 @@ What to verify after the run:
 - rows exist in `raw_products`
 - matching `raw_product_specs` and `raw_product_images` rows exist
 - `publication_outbox` rows were created
+- `crawl_metrics_final` shows non-zero `categories_with_results_total`, `listing_cards_seen_total`, and `pagination_depth_max`
 - `scrape_run_summary` reports non-zero persisted items with non-zero specs/image coverage

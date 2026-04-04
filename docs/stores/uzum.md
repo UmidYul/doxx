@@ -13,13 +13,17 @@ Uzum follows the same ingestion boundary as the other stores:
 
 ## Listing flow
 
-- The primary bounded-run seed is `https://uzum.uz/ru/category/smartfony-12690`.
+- The bounded-run seed set now starts from four direct high-yield electronics branches:
+  - `https://uzum.uz/ru/category/smartfony-12690`
+  - `https://uzum.uz/ru/category/noutbuki-15718`
+  - `https://uzum.uz/ru/category/planshety-i-elektronnye-knigi-15716`
+  - `https://uzum.uz/ru/category/televizory-12601`
 - The spider opens category pages with Playwright and mirrors hydrated `/product/` anchors into a hidden DOM snapshot before Scrapy serializes `response.text`.
 - It scrolls the page in controlled steps to surface lazy-loaded product tiles.
 - Pagination is synthetic through the `page=` query parameter when an explicit next link is absent.
 - Uzum-specific duplicate listing signatures intentionally ignore the `page` number. This stops bounded runs from burning through 10+ synthetic pages when Uzum serves the same 48-card shell behind different `page=` URLs.
-- Category traversal stays restricted to electronics-friendly URLs through `is_electronics_category_url(...)`, then further narrows to high-value smartphone branches.
-- Low-value / misleading phone branches like `smartfony-i-telefony-*`, `knopochnye-telefony-*`, `smartfony-android-*`, `smartfony-apple-iphoneios-*`, `smartfony-na-drugikh-os-*`, and `vosstanovlennye-smartfony-*` are intentionally skipped for bounded QA runs because they produced zero-result or off-target pages in live traffic.
+- Category traversal stays restricted to electronics-friendly URLs through `is_electronics_category_url(...)`, then further narrows to high-value phone, laptop, tablet, TV, and watch branches.
+- Low-value / misleading branches like accessory trees, repair parts, cables, generic umbrella tech hubs, and restored / button-phone pages are intentionally skipped because they produced zero-result or off-target pages in live traffic.
 
 ## PDP flow
 
@@ -86,10 +90,10 @@ Uzum follows the same ingestion boundary as the other stores:
 
 - Fixture acceptance: `tests/acceptance/test_store_acceptance.py`
 - Cross-store ingestion matrix: `tests/acceptance/test_store_ingestion_matrix.py`
-- Bounded QA run:
-  - `python -m scrapy crawl uzum -s CLOSESPIDER_ITEMCOUNT=3 -s CLOSESPIDER_PAGECOUNT=15 -L INFO`
+- Expanded bounded QA run:
+  - `python -m scrapy crawl uzum -s CLOSESPIDER_ITEMCOUNT=10 -s CLOSESPIDER_PAGECOUNT=25 -L INFO`
 - Acceptable bounded-run quality for Uzum:
   - products persist into scraper DB
   - `source_id`, `title`, `price_raw`, `image_urls`, `category_hint` are present
-  - `raw_specs` should be non-empty on a meaningful subset once variant JSON-LD is available
+- `raw_specs` should be non-empty on a meaningful subset once variant JSON-LD is available; the current expanded bounded target is better than half of persisted rows, not just isolated lucky PDPs
 - Live rollout should stay canary-first because browser stores are more sensitive than the HTTP-first references.

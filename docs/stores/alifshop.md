@@ -16,8 +16,12 @@ Alifshop is now migrated onto the same raw-output contour as the other stores:
 - Seeds come directly from the old `E-katalog` category family:
   - `/ru/categories/smartfoni-apple`
   - `/ru/categories/smartfoni-samsung`
+- Coverage is now widened carefully with additional high-yield brand branches:
+  - `/ru/categories/smartfoni-xiaomi`
+  - `/ru/categories/smartfoni-honor`
+  - `/ru/categories/smartfoni-tecno`
 - Listing discovery looks for `/ru|uz/moderated-offer/...` links in anchors and serialized HTML.
-- Nested category discovery follows `/categories/...` links, but keeps traversal restricted to phone-related slugs.
+- Nested category discovery follows `/categories/...` links, but keeps traversal restricted to actual smartphone branches and skips accessory / gadget umbrella categories.
 - Pagination prefers a normal next link and falls back to synthetic `page=` increments.
 
 ## PDP flow
@@ -73,3 +77,5 @@ Alifshop is now migrated onto the same raw-output contour as the other stores:
 - Fixture acceptance: `tests/acceptance/test_store_acceptance.py`
 - Cross-store ingestion matrix: `tests/acceptance/test_store_ingestion_matrix.py`
 - Alifshop is the cleanest old-reference HTTP migration after MediaPark and a good template for stores that expose useful meta tags without needing a browser.
+- Expanded bounded QA run:
+  - `python -m scrapy crawl alifshop -s CLOSESPIDER_ITEMCOUNT=12 -s CLOSESPIDER_PAGECOUNT=20 -L INFO`

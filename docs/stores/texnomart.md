@@ -13,10 +13,14 @@ Texnomart now follows the same ingestion contour as MediaPark:
 
 ## Listing flow
 
-- Seeds come from `start_category_urls()`.
+- Seeds now cover four high-yield tech branches instead of only smartphones:
+  - `/ru/katalog/smartfony/`
+  - `/ru/katalog/noutbuki/`
+  - `/ru/katalog/planshety/`
+  - `/ru/katalog/televizory/`
 - Listing discovery looks for `/product/`, `/catalog/product/`, and related product-detail URLs in anchors and inline HTML payloads.
-- Nested categories are discovered from `/katalog/` and `/catalog/` links, but traversal stays constrained to phone-oriented paths.
-- Pagination prefers explicit next links and falls back to synthetic `page=` mutation when product tiles are present.
+- Nested categories are discovered from `/katalog/` and `/catalog/` links, but traversal stays constrained to high-value tech paths and intentionally skips accessory-only or button-phone branches.
+- Pagination prefers explicit next links and falls back to synthetic `page=` mutation when product tiles are present. The fallback now accepts both `/catalog/` and `/katalog/` storefront paths.
 
 ## PDP flow
 
@@ -52,7 +56,8 @@ Texnomart now follows the same ingestion contour as MediaPark:
 
 - Texnomart storefront markup changes more often than MediaPark, so product URL patterns must stay defensive.
 - Installment-price widgets can look like the main price if selectors become too broad.
-- Category navigation can surface non-phone branches unless traversal stays narrowly filtered.
+- Category navigation can surface noisy non-core branches unless traversal stays narrowly filtered.
+- Listing-side anti-bot / Cloudflare noise still appears in live traffic even when the spider continues to persist valid items.
 
 ## Store-specific tuning still expected
 
@@ -71,3 +76,5 @@ Texnomart now follows the same ingestion contour as MediaPark:
 - Fixture acceptance: `tests/acceptance/test_store_acceptance.py`
 - Cross-store ingestion matrix: `tests/acceptance/test_store_ingestion_matrix.py`
 - Texnomart is the second reference migration after MediaPark and usually needs live tuning around markup drift rather than architecture changes.
+- Expanded bounded QA run:
+  - `python -m scrapy crawl texnomart -s CLOSESPIDER_ITEMCOUNT=10 -s CLOSESPIDER_PAGECOUNT=25 -L INFO`

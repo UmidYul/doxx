@@ -1,0 +1,64 @@
+{
+  "event_id": "715883cd-8257-5db8-aa68-4d18d3b28552",
+  "event_type": "scraper.product.scraped.v1",
+  "schema_version": 1,
+  "store_name": "mediapark",
+  "source_id": "32771",
+  "source_url": "https://mediapark.uz/products/view/smartfon-samsung-galaxy-z-flip-7-black-12-256-32771",
+  "scrape_run_id": "run_mediapark_20260403_120000",
+  "scraped_at": "2026-04-03T12:00:15Z",
+  "payload_hash": "sha256:7ab4ec7f4a977f5c31df5a0b82c0ce11f298f389d17410c3447b9af6ca0bc1a0",
+  "structured_payload": {
+    "store_name": "mediapark",
+    "source_url": "https://mediapark.uz/products/view/smartfon-samsung-galaxy-z-flip-7-black-12-256-32771",
+    "source_id": "32771",
+    "title": "Samsung Galaxy Z Flip 7 Black 12/256",
+    "brand": "Samsung",
+    "price_raw": "14999000",
+    "in_stock": true,
+    "raw_specs": {
+      "Оперативная память": "12 ГБ",
+      "Встроенная память": "256 ГБ",
+      "Цвет": "Black"
+    },
+    "image_urls": [
+      "https://mediapark.uz/img/products/32771/main.jpg",
+      "https://mediapark.uz/img/products/32771/gallery-2.jpg"
+    ],
+    "description": "Складной смартфон Samsung Galaxy Z Flip 7.",
+    "category_hint": "phone",
+    "external_ids": {
+      "mediapark": "32771"
+    },
+    "scraped_at": "2026-04-03T12:00:15Z",
+    "payload_hash": "sha256:7ab4ec7f4a977f5c31df5a0b82c0ce11f298f389d17410c3447b9af6ca0bc1a0",
+    "raw_payload_snapshot": {
+      "source": "mediapark",
+      "url": "https://mediapark.uz/products/view/smartfon-samsung-galaxy-z-flip-7-black-12-256-32771",
+      "source_id": "32771",
+      "title": "Samsung Galaxy Z Flip 7 Black 12/256",
+      "brand": "Samsung",
+      "price_str": "14999000",
+      "in_stock": true,
+      "raw_specs": {
+        "Оперативная память": "12 ГБ"
+      },
+      "image_urls": [
+        "https://mediapark.uz/img/products/32771/main.jpg"
+      ]
+    },
+    "scrape_run_id": "run_mediapark_20260403_120000",
+    "identity_key": "mediapark:32771"
+  },
+  "publication": {
+    "publication_version": 1,
+    "exchange_name": "moscraper.events",
+    "queue_name": "scraper.products.v1",
+    "routing_key": "listing.scraped.v1",
+    "outbox_status": "publishing",
+    "attempt_number": 1,
+    "publisher_service": "publisher-service",
+    "outbox_created_at": "2026-04-03T12:00:16Z",
+    "published_at": null
+  }
+}
