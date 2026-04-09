@@ -39,6 +39,124 @@ def test_mediapark_listing_discovers_pdp_urls_nested_categories_and_next_page():
     assert next_page_url == "https://mediapark.uz/products/category/telefony-17/smartfony-40?page=2"
 
 
+def test_mediapark_start_requests_prefers_product_sitemap_by_default(monkeypatch):
+    spider = MediaparkSpider()
+
+    def _fake_schedule(url, *, callback, meta=None, purpose="listing", priority=0):
+        return scrapy.Request(url=url, callback=callback, meta=meta or {}, priority=priority)
+
+    monkeypatch.setattr(spider, "schedule_safe_request", _fake_schedule)
+
+    requests = list(spider.start_requests())
+
+    assert len(requests) == 1
+    assert requests[0].url == spider.product_sitemap_index_url
+    assert requests[0].callback == spider.parse_product_sitemap_index
+
+
+def test_mediapark_category_mode_keeps_legacy_category_seeds(monkeypatch):
+    spider = MediaparkSpider()
+    spider.discovery_mode = "categories"
+
+    def _fake_schedule(url, *, callback, meta=None, purpose="listing", priority=0):
+        return scrapy.Request(url=url, callback=callback, meta=meta or {}, priority=priority)
+
+    monkeypatch.setattr(spider, "schedule_safe_request", _fake_schedule)
+
+    requests = list(spider.start_requests())
+
+    assert requests
+    assert requests[0].url == spider.start_category_urls()[0]
+    assert all(req.url != spider.product_sitemap_index_url for req in requests)
+
+
+def test_mediapark_sitemap_iterator_dedupes_regions_and_detail_suffixes():
+    spider = MediaparkSpider()
+    xml = """
+    <urlset>
+      <url><loc>https://mediapark.uz/products/view/demo-phone-123</loc></url>
+      <url><loc>https://mediapark.uz/tashkent/products/view/demo-phone-123</loc></url>
+      <url><loc>https://mediapark.uz/products/view/demo-phone-123/characteristics</loc></url>
+      <url><loc>https://mediapark.uz/samarkand/products/view/demo-phone-123/feedback</loc></url>
+      <url><loc>https://mediapark.uz/products/view/demo-tv-777</loc></url>
+    </urlset>
+    """
+
+    urls = list(spider._iter_root_product_urls_from_sitemap(xml))
+
+    assert urls == [
+        "https://mediapark.uz/products/view/demo-phone-123",
+        "https://mediapark.uz/products/view/demo-tv-777",
+    ]
+
+
+def test_mediapark_sitemap_index_schedules_only_detailed_leaf_sitemaps(monkeypatch):
+    spider = MediaparkSpider()
+    scheduled: list[str] = []
+
+    def _fake_schedule(url, *, callback, meta=None, purpose="listing", priority=0):
+        scheduled.append(url)
+        return scrapy.Request(url=url, callback=callback, meta=meta or {}, priority=priority)
+
+    monkeypatch.setattr(spider, "schedule_safe_request", _fake_schedule)
+    response = scrapy.http.HtmlResponse(
+        url=spider.product_sitemap_index_url,
+        body="""
+        <sitemapindex>
+          <sitemap><loc>https://mediapark.uz/product-view/1/detailed.xml</loc></sitemap>
+          <sitemap><loc>https://mediapark.uz/product-view/1/characteristics.xml</loc></sitemap>
+          <sitemap><loc>https://mediapark.uz/product-view/2/detailed.xml</loc></sitemap>
+          <sitemap><loc>https://mediapark.uz/product-view/2/shops.xml</loc></sitemap>
+        </sitemapindex>
+        """.encode("utf-8"),
+        encoding="utf-8",
+    )
+
+    requests = list(spider.parse_product_sitemap_index(response))
+
+    assert [req.url for req in requests] == ["https://mediapark.uz/product-view/1/detailed.xml"]
+    assert requests[0].meta["sitemap_detailed_urls"] == [
+        "https://mediapark.uz/product-view/1/detailed.xml",
+        "https://mediapark.uz/product-view/2/detailed.xml",
+    ]
+    assert scheduled == ["https://mediapark.uz/product-view/1/detailed.xml"]
+
+
+def test_mediapark_sitemap_leaf_batches_product_requests(monkeypatch):
+    spider = MediaparkSpider()
+
+    def _fake_schedule(url, *, callback, meta=None, purpose="listing", priority=0):
+        return scrapy.Request(url=url, callback=callback, meta=meta or {}, priority=priority)
+
+    monkeypatch.setattr(spider, "schedule_safe_request", _fake_schedule)
+    urls = "\n".join(
+        f"<url><loc>https://mediapark.uz/products/view/demo-product-{index}</loc></url>"
+        for index in range(12)
+    )
+    response = scrapy.http.HtmlResponse(
+        url="https://mediapark.uz/product-view/1/detailed.xml",
+        body=f"<urlset>{urls}</urlset>".encode("utf-8"),
+        encoding="utf-8",
+    )
+    response.request = scrapy.Request(response.url)
+    response.meta["sitemap_detailed_urls"] = [response.url, "https://mediapark.uz/product-view/2/detailed.xml"]
+    response.meta["sitemap_leaf_index"] = 0
+    response.meta["sitemap_product_offset"] = 0
+    response.meta["category_url"] = response.url
+
+    requests = list(spider.parse_product_sitemap_leaf(response))
+
+    product_requests = [req for req in requests if req.callback == spider.parse]
+    continuation_requests = [req for req in requests if req.callback == spider.parse_product_sitemap_leaf]
+
+    assert len(product_requests) == 5
+    assert {req.priority for req in product_requests} == {20}
+    assert len(continuation_requests) == 1
+    assert continuation_requests[0].url == response.url
+    assert continuation_requests[0].dont_filter is True
+    assert continuation_requests[0].meta["sitemap_product_offset"] == 5
+
+
 def test_mediapark_pdp_parser_returns_stable_fields_and_source_id():
     spider = MediaparkSpider()
     response = _response(

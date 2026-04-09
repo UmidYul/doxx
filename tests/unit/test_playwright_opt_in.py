@@ -49,7 +49,8 @@ def test_uzum_start_request_uses_playwright_meta(monkeypatch: pytest.MonkeyPatch
     reqs = list(spider.start_requests())
     assert len(reqs) >= 1
     assert all(r.meta.get("access_mode_selected") in {"browser", "plain"} for r in reqs)
-    assert any("/category/smartfony-12690" in r.url for r in reqs)
+    assert reqs[0].url == "https://uzum.uz/ru"
+    assert reqs[0].meta.get("seed_kind") == "homepage"
 
 
 def test_uzum_listing_request_injects_snapshot_anchors(monkeypatch: pytest.MonkeyPatch):
@@ -72,6 +73,28 @@ def test_uzum_listing_request_injects_snapshot_anchors(monkeypatch: pytest.Monke
 
     assert any("__scrapy_snapshot__" in arg for arg in evaluate_args)
     assert all("wait_for_selector" not in getattr(m, "method", "") for m in methods)
+
+
+def test_uzum_categories_mode_uses_legacy_category_seeds(monkeypatch: pytest.MonkeyPatch):
+    from infrastructure.spiders.uzum import UzumSpider
+    from config.settings import settings
+
+    spider = UzumSpider()
+    spider.discovery_mode = "categories"
+    monkeypatch.setattr(settings, "ENABLE_RESOURCE_GOVERNANCE", False)
+
+    class _S:
+        def get(self, key, default=None):
+            if key == "DOWNLOAD_HANDLERS":
+                return UzumSpider.custom_settings.get("DOWNLOAD_HANDLERS")
+            return default
+
+    spider.settings = _S()
+    reqs = list(spider.start_requests())
+
+    assert reqs
+    assert all("/category/" in r.url for r in reqs)
+    assert all(r.meta.get("seed_kind") != "homepage" for r in reqs)
 
 
 def test_uzum_product_requests_stay_plain_http_by_default():
@@ -129,6 +152,64 @@ def test_uzum_duplicate_listing_signature_ignores_page_number():
         body=b"<html></html>",
     )
     assert spider.build_listing_signature(r1, urls, 1) == spider.build_listing_signature(r2, urls, 2)
+
+
+def test_uzum_product_parse_schedules_browser_graph_request():
+    from infrastructure.spiders.uzum import UzumSpider
+
+    spider = UzumSpider()
+
+    class _S:
+        def get(self, key, default=None):
+            if key == "DOWNLOAD_HANDLERS":
+                return UzumSpider.custom_settings.get("DOWNLOAD_HANDLERS")
+            return default
+
+    spider.settings = _S()
+    body = b"""
+    <html><head>
+      <script type="application/ld+json">
+      {
+        "@context":"https://schema.org",
+        "@graph":[
+          {
+            "@type":"ProductGroup",
+            "productGroupID":"111111",
+            "name":"Demo Phone X",
+            "hasVariant":[
+              {
+                "@type":"Product",
+                "name":"Demo Phone X",
+                "sku":"123456",
+                "url":"https://uzum.uz/ru/product/demo-phone-111111?skuId=123456",
+                "offers":{"@type":"Offer","price":"4990000","availability":"https://schema.org/InStock"},
+                "image":["https://images.uzum.uz/demo.jpg"]
+              }
+            ]
+          }
+        ]
+      }
+      </script>
+    </head><body>
+      <a href="/ru/product/{url}">template</a>
+    </body></html>
+    """
+    response = scrapy.http.HtmlResponse(
+        url="https://uzum.uz/ru/product/demo-phone-111111?skuId=123456",
+        request=scrapy.Request("https://uzum.uz/ru/product/demo-phone-111111?skuId=123456"),
+        body=body,
+        encoding="utf-8",
+    )
+    response.meta["category_url"] = "https://uzum.uz/ru"
+    response.meta["page"] = 1
+    outputs = list(spider.parse_product(response))
+    requests = [item for item in outputs if isinstance(item, scrapy.Request)]
+
+    assert len(requests) == 1
+    assert requests[0].meta.get("playwright") is True
+    assert requests[0].meta.get("access_mode_selected") == "browser"
+    assert requests[0].meta.get("graph_depth") == 1
+    assert requests[0].dont_filter is True
 
 
 @pytest.mark.skipif(

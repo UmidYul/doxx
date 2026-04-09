@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 import hashlib
 import json
 import re
@@ -16,7 +17,7 @@ from infrastructure.spiders.product_classifier import (
 )
 
 _PLAYWRIGHT_HANDLER = "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler"
-_UZUM_PRODUCT_PATH_RE = re.compile(r"/(?:ru/)?product/[^/?#]+", re.I)
+_UZUM_PRODUCT_PATH_RE = re.compile(r"^/(?:ru/)?product/[^/?#]+/?$", re.I)
 _UZUM_ID_IN_PATH_RE = re.compile(r"-([0-9]{5,})(?:$|[/?#])")
 _UZUM_SKU_RE = re.compile(r"(?:skuId|skuid)=([0-9]+)", re.I)
 _UZUM_PRICE_NUM_RE = re.compile(r"(\d[\d\s\u00a0]{3,})")
@@ -30,10 +31,15 @@ _UZUM_SUM_TEXT_RE = re.compile(
 )
 _UZUM_PRODUCT_HREF_TEXT_RE = re.compile(r'["\'](/(?:ru/)?product/[^"\']+)["\']', re.I)
 _UZUM_PRODUCT_ESCAPED_HREF_TEXT_RE = re.compile(r"\\/(?:ru\\/)?product\\/[^\"'\\s]+", re.I)
+_UZUM_HOME_URL = "https://uzum.uz/ru"
 _UZUM_PRIMARY_SMARTPHONE_CATEGORY_URL = "https://uzum.uz/ru/category/smartfony-12690"
 _UZUM_LAPTOP_CATEGORY_URL = "https://uzum.uz/ru/category/noutbuki-15718"
 _UZUM_TABLET_CATEGORY_URL = "https://uzum.uz/ru/category/planshety-i-elektronnye-knigi-15716"
 _UZUM_TV_CATEGORY_URL = "https://uzum.uz/ru/category/televizory-12601"
+_UZUM_BROWSER_GRAPH_EXPANSION_LIMIT = 8
+_UZUM_PENDING_PRODUCT_DRAIN_LIMIT = 6
+_UZUM_PENDING_GRAPH_DRAIN_LIMIT = 2
+_UZUM_PRODUCT_GRAPH_FANOUT_LIMIT = 48
 _UZUM_PHONE_CATEGORY_HINTS = (
     "smartfon",
     "iphone",
@@ -112,6 +118,15 @@ _UZUM_LISTING_SNAPSHOT_JS = """
     categoryHrefs.map((href) => `<a href="${href}">category</a>`).join("");
 })();
 """
+_UZUM_PRODUCT_GRAPH_LINKS_JS = """
+(() => Array.from(
+  new Set(
+    Array.from(document.querySelectorAll('a[href*="/product/"]'))
+      .map((el) => el.href)
+      .filter(Boolean)
+  )
+).slice(0, 160))();
+"""
 
 class UzumSpider(BaseProductSpider):
     """UZUM marketplace spider with Playwright-backed listing/PDP parsing."""
@@ -156,6 +171,37 @@ class UzumSpider(BaseProductSpider):
             _UZUM_TV_CATEGORY_URL,
         )
 
+    def start_requests(self):
+        discovery_mode = self._discovery_mode()
+        if discovery_mode in {"homepage", "hybrid"}:
+            self.crawl_registry.categories_started_total += 1
+            self._crawl_event(
+                "CATEGORY_START",
+                category_url=_UZUM_HOME_URL,
+                page=1,
+                discovery_mode=discovery_mode,
+            )
+            req = self.schedule_safe_request(
+                _UZUM_HOME_URL,
+                callback=self.parse_homepage_seed,
+                purpose="listing",
+                meta={
+                    "category_url": _UZUM_HOME_URL,
+                    "page": 1,
+                    "empty_streak": 0,
+                    "dup_sig_streak": 0,
+                    "discovery_mode": discovery_mode,
+                    "playwright_include_page": True,
+                    "seed_kind": "homepage",
+                },
+            )
+            if req is not None:
+                yield req
+            if discovery_mode == "homepage":
+                return
+
+        yield from super().start_requests()
+
     def schedule_safe_request(
         self,
         url: str,
@@ -190,15 +236,15 @@ class UzumSpider(BaseProductSpider):
             # the DOM snapshot so Scrapy sees real PDP/category hrefs in response.text.
             m["playwright_page_methods"] = [
                 PageMethod("wait_for_load_state", "domcontentloaded"),
-                PageMethod("wait_for_timeout", 1800),
+                PageMethod("wait_for_timeout", 4000),
                 PageMethod("evaluate", "window.scrollTo(0, Math.min(document.body.scrollHeight, 2500))"),
-                PageMethod("wait_for_timeout", 1200),
+                PageMethod("wait_for_timeout", 1800),
                 PageMethod("evaluate", "window.scrollTo(0, Math.min(document.body.scrollHeight, 5000))"),
-                PageMethod("wait_for_timeout", 1200),
+                PageMethod("wait_for_timeout", 1800),
                 PageMethod("evaluate", "window.scrollTo(0, document.body.scrollHeight)"),
-                PageMethod("wait_for_timeout", 2000),
-                PageMethod("wait_for_timeout", 2500),
-                PageMethod("wait_for_timeout", 5000),
+                PageMethod("wait_for_timeout", 3000),
+                PageMethod("evaluate", "window.scrollTo(0, document.body.scrollHeight)"),
+                PageMethod("wait_for_timeout", 3000),
                 PageMethod("evaluate", _UZUM_LISTING_SNAPSHOT_JS),
             ]
         else:
@@ -214,6 +260,72 @@ class UzumSpider(BaseProductSpider):
         # PDP requests stay plain HTTP by default because live Uzum product pages
         # already expose the full ProductGroup JSON-LD without browser rendering.
         return {}
+
+    async def parse_homepage_seed(self, response: scrapy.http.Response):
+        # Homepage seeding bypasses BaseProductSpider.parse(), so we must release
+        # the browser governance counters here to avoid leaking one permanent
+        # browser slot for the rest of the crawl.
+        from infrastructure.access.resource_governance import release_request_governance_counters
+
+        release_request_governance_counters(dict(response.meta or {}), self.store_name or self.name)
+        page = response.meta.get("playwright_page")
+        if page is None:
+            return list(self.parse_listing(response))
+
+        hrefs: list[str] = []
+        try:
+            await page.wait_for_timeout(4000)
+            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            await page.wait_for_timeout(3000)
+            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            await page.wait_for_timeout(3000)
+            hrefs = await page.eval_on_selector_all(
+                'a[href*="/product/"]',
+                "els => Array.from(new Set(els.map(e => e.href).filter(Boolean))).slice(0, 160)",
+            )
+        finally:
+            await page.close()
+
+        if not hrefs:
+            return list(self.parse_listing(response))
+
+        reg = self.crawl_registry
+        category_url = str(response.meta.get("category_url") or response.url)
+        page_num = int(response.meta.get("page") or 1)
+        reg.note_pagination_depth(page_num)
+        reg.remember_listing_page_url(response.url)
+        reg.listing_pages_seen_total += 1
+        reg.listing_cards_seen_total += len(hrefs)
+        reg.record_category_with_results(category_url)
+        self.log_empty_listing_page(
+            response,
+            category_url=category_url,
+            page=page_num,
+            extracted_count=len(hrefs),
+        )
+        reg.record_listing_stats(listing_url=response.url, product_urls_found=len(hrefs))
+
+        from infrastructure.observability import message_codes as obs_mc
+        from infrastructure.observability.event_logger import log_sync_event
+
+        log_sync_event(
+            "crawl",
+            "info",
+            obs_mc.CRAWL_LISTING_SEEN,
+            self._obs_corr_crawl(category_url=category_url, source_url=response.url),
+            metrics={"page": page_num, "product_links": len(hrefs)},
+        )
+
+        outputs = list(self._schedule_product_requests_from_candidates(response, hrefs))
+        self._crawl_event(
+            "PAGINATION_STOP",
+            category_url=category_url,
+            page=page_num,
+            reason="no_next_url",
+            empty_streak=0,
+            dup_sig_streak=0,
+        )
+        return outputs
 
     def is_product_page(self, response: scrapy.http.Response) -> bool:
         return bool(_UZUM_PRODUCT_PATH_RE.search(urlparse(response.url).path))
@@ -254,6 +366,8 @@ class UzumSpider(BaseProductSpider):
         return out
 
     def extract_listing_category_urls(self, response: scrapy.http.Response) -> list[str]:
+        if "/category/" not in urlparse(response.url).path:
+            return []
         candidates: list[str] = []
         for href in response.css('a[href*="/category/"]::attr(href), a[href*="/catalog/"]::attr(href)').getall():
             if not href:
@@ -339,6 +453,16 @@ class UzumSpider(BaseProductSpider):
         return hashlib.sha256(
             json.dumps(blob, sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest()
+
+    def parse_product(self, response: scrapy.http.Response):
+        yield from super().parse_product(response)
+        graph_req = self._build_browser_graph_request(response)
+        if graph_req is not None:
+            yield graph_req
+        yield from self._drain_pending_graph_candidates(response)
+        # Reserve the just-freed slot for browser graph expansion first; otherwise
+        # draining deferred plain PDPs can starve deeper discovery and cap runs early.
+        yield from self._drain_pending_product_candidates(response)
 
     def extract_source_id_from_url(self, url: str) -> str | None:
         parsed = urlparse(url)
@@ -678,6 +802,306 @@ class UzumSpider(BaseProductSpider):
             return f"p:{path_match.group(1)}"
         return None
 
+    def parse_product_graph_browser(self, response: scrapy.http.Response):
+        # This callback bypasses BaseProductSpider.parse(), so we must release
+        # resource-governance counters here to avoid leaking browser slots.
+        from infrastructure.access.resource_governance import release_request_governance_counters
+
+        release_request_governance_counters(dict(response.meta or {}), self.store_name or self.name)
+        hrefs = self._extract_graph_browser_links(response)
+        outputs = list(self._schedule_product_requests_from_candidates(response, hrefs))
+        outputs.extend(list(self._drain_pending_graph_candidates(response)))
+        outputs.extend(list(self._drain_pending_product_candidates(response)))
+        return outputs
+
+    def _build_browser_graph_request(
+        self,
+        response: scrapy.http.Response,
+    ) -> scrapy.http.Request | None:
+        if response.status != 200:
+            return None
+        depth = int(response.meta.get("graph_depth") or 0)
+        canon = self.canonicalize_product_url(response.url)
+        base_meta = self._graph_seed_meta_from_response(response)
+        return self._schedule_graph_request_from_seed(
+            canonical_url=canon,
+            graph_seed_url=response.url,
+            graph_depth=depth,
+            base_meta=base_meta,
+            enqueue_on_blocked=True,
+        )
+
+    def _graph_seed_meta_from_response(self, response: scrapy.http.Response) -> dict[str, Any]:
+        base: dict[str, Any] = {}
+        for key in ("category_url", "page", "discovery_mode", "from_listing", "seed_kind"):
+            value = response.meta.get(key)
+            if value is not None:
+                base[key] = value
+        return base
+
+    def _pending_graph_queue(self):
+        queue = getattr(self, "_uzum_pending_graph_candidates", None)
+        if not isinstance(queue, deque):
+            queue = deque()
+            self._uzum_pending_graph_candidates = queue
+        seen = getattr(self, "_uzum_pending_graph_candidate_urls", None)
+        if not isinstance(seen, set):
+            seen = set()
+            self._uzum_pending_graph_candidate_urls = seen
+        return queue, seen
+
+    def _enqueue_pending_graph_seed(
+        self,
+        *,
+        canonical_url: str,
+        graph_seed_url: str,
+        graph_depth: int,
+        base_meta: dict[str, Any],
+    ) -> None:
+        queue, seen = self._pending_graph_queue()
+        if canonical_url in seen:
+            return
+        queue.append((canonical_url, graph_seed_url, int(graph_depth), dict(base_meta)))
+        seen.add(canonical_url)
+        self._crawl_event("PRODUCT_GRAPH_DEFERRED", canonical_url=canonical_url, reason="resource_governance")
+
+    def _drain_pending_graph_candidates(self, response: scrapy.http.Response):
+        queue, seen = self._pending_graph_queue()
+        drained = 0
+        while queue and drained < _UZUM_PENDING_GRAPH_DRAIN_LIMIT:
+            canonical_url, graph_seed_url, graph_depth, base_meta = queue[0]
+            req = self._schedule_graph_request_from_seed(
+                canonical_url=str(canonical_url),
+                graph_seed_url=str(graph_seed_url),
+                graph_depth=int(graph_depth),
+                base_meta=dict(base_meta or {}),
+                enqueue_on_blocked=False,
+            )
+            if req is None:
+                break
+            queue.popleft()
+            seen.discard(str(canonical_url))
+            drained += 1
+            yield req
+
+    def _schedule_graph_request_from_seed(
+        self,
+        *,
+        canonical_url: str,
+        graph_seed_url: str,
+        graph_depth: int,
+        base_meta: dict[str, Any],
+        enqueue_on_blocked: bool,
+    ) -> scrapy.http.Request | None:
+        if graph_depth >= 1:
+            return None
+
+        started = int(getattr(self, "_uzum_browser_graph_expansions_started", 0) or 0)
+        if started >= _UZUM_BROWSER_GRAPH_EXPANSION_LIMIT:
+            return None
+
+        expanded_urls = getattr(self, "_uzum_browser_graph_expanded_urls", None)
+        if not isinstance(expanded_urls, set):
+            expanded_urls = set()
+            self._uzum_browser_graph_expanded_urls = expanded_urls
+        if canonical_url in expanded_urls:
+            return None
+
+        req = self.schedule_safe_request(
+            canonical_url,
+            callback=self.parse_product_graph_browser,
+            purpose="product",
+            priority=5,
+            meta={
+                **dict(base_meta or {}),
+                "force_browser": True,
+                "playwright_include_page": True,
+                "graph_depth": graph_depth + 1,
+                "graph_seed_url": graph_seed_url,
+            },
+        )
+        if req is None:
+            if enqueue_on_blocked:
+                self._enqueue_pending_graph_seed(
+                    canonical_url=canonical_url,
+                    graph_seed_url=graph_seed_url,
+                    graph_depth=graph_depth,
+                    base_meta=base_meta,
+                )
+            return None
+
+        # Resource governance may silently downgrade browser intents to plain HTTP.
+        # For graph expansion this is not useful, so rollback counters and retry
+        # later through the deferred graph queue when a real browser slot frees up.
+        mode = str(req.meta.get("access_mode_selected") or "").lower()
+        if mode != "browser" or not bool(req.meta.get("playwright")):
+            from infrastructure.access.resource_governance import release_request_governance_counters
+
+            release_request_governance_counters(dict(req.meta or {}), self.store_name or self.name)
+            if enqueue_on_blocked:
+                self._enqueue_pending_graph_seed(
+                    canonical_url=canonical_url,
+                    graph_seed_url=graph_seed_url,
+                    graph_depth=graph_depth,
+                    base_meta=base_meta,
+                )
+            return None
+
+        expanded_urls.add(canonical_url)
+        self._uzum_browser_graph_expansions_started = started + 1
+        try:
+            from scrapy_playwright.page import PageMethod
+        except Exception:
+            return req.replace(dont_filter=True)
+
+        graph_methods = [
+            PageMethod("wait_for_load_state", "domcontentloaded"),
+            PageMethod("wait_for_timeout", 3500),
+            PageMethod("evaluate", "window.scrollTo(0, document.body.scrollHeight)"),
+            PageMethod("wait_for_timeout", 2500),
+            PageMethod("evaluate", "window.scrollTo(0, document.body.scrollHeight)"),
+            PageMethod("wait_for_timeout", 2500),
+            PageMethod("evaluate", _UZUM_PRODUCT_GRAPH_LINKS_JS),
+        ]
+        meta = dict(req.meta)
+        meta["playwright_include_page"] = False
+        meta["playwright_page_methods"] = graph_methods
+        meta["uzum_graph_links_method_index"] = len(graph_methods) - 1
+        return req.replace(meta=meta, dont_filter=True)
+
+    def _schedule_product_requests_from_candidates(
+        self,
+        response: scrapy.http.Response,
+        candidates: list[str],
+    ):
+        reg = self.crawl_registry
+        page = int(response.meta.get("page") or 1)
+        category_url = str(response.meta.get("category_url") or response.url)
+        page_seen_urls: set[str] = set()
+        page_seen_source_ids: set[str] = set()
+        scheduled = 0
+
+        for raw_url in candidates:
+            raw_text = str(raw_url or "").strip()
+            if not raw_text or "{" in raw_text or "}" in raw_text:
+                continue
+            abs_url = response.urljoin(raw_text)
+            canon = self.canonicalize_product_url(abs_url)
+            path = urlparse(canon).path
+            if not _UZUM_PRODUCT_PATH_RE.search(path):
+                continue
+            sid = self.extract_source_id_from_url(canon)
+            reg.product_urls_seen_total += 1
+
+            if canon in page_seen_urls or (sid and sid in page_seen_source_ids):
+                reg.product_urls_deduped_total += 1
+                self._crawl_event(
+                    "PRODUCT_DEDUPED",
+                    category_url=category_url,
+                    page=page,
+                    canonical_url=canon,
+                    reason="product_graph_page_duplicate",
+                )
+                continue
+
+            if self.should_skip_product_url(canon):
+                reg.product_urls_deduped_total += 1
+                self._crawl_event(
+                    "PRODUCT_DEDUPED",
+                    category_url=category_url,
+                    page=page,
+                    canonical_url=canon,
+                    reason="product_graph_seen",
+                )
+                continue
+
+            req = self.schedule_product_request(
+                abs_url,
+                response=response,
+                meta=dict(response.meta),
+            )
+            if req is None:
+                self._enqueue_pending_product_candidate(abs_url, dict(response.meta))
+                page_seen_urls.add(canon)
+                if sid:
+                    page_seen_source_ids.add(sid)
+                self._crawl_event(
+                    "PRODUCT_SCHEDULE_BLOCKED",
+                    category_url=category_url,
+                    page=page,
+                    canonical_url=canon,
+                    reason="product_graph_resource_or_policy_gate",
+                )
+                continue
+
+            reg.remember_product_url(canon)
+            page_seen_urls.add(canon)
+            if sid:
+                reg.remember_source_id(sid)
+                page_seen_source_ids.add(sid)
+            scheduled += 1
+            yield req
+            if scheduled >= _UZUM_PRODUCT_GRAPH_FANOUT_LIMIT:
+                break
+
+    def _extract_graph_browser_links(self, response: scrapy.http.Response) -> list[str]:
+        methods = response.meta.get("playwright_page_methods") or []
+        idx = response.meta.get("uzum_graph_links_method_index")
+        if isinstance(idx, int) and 0 <= idx < len(methods):
+            method = methods[idx]
+            result = getattr(method, "result", None)
+            if isinstance(result, list):
+                return [str(item).strip() for item in result if str(item or "").strip()]
+        return []
+
+    def _pending_product_queue(self):
+        queue = getattr(self, "_uzum_pending_product_candidates", None)
+        if not isinstance(queue, deque):
+            queue = deque()
+            self._uzum_pending_product_candidates = queue
+        seen = getattr(self, "_uzum_pending_product_candidate_urls", None)
+        if not isinstance(seen, set):
+            seen = set()
+            self._uzum_pending_product_candidate_urls = seen
+        return queue, seen
+
+    def _enqueue_pending_product_candidate(self, abs_url: str, meta: dict[str, Any]) -> None:
+        canon = self.canonicalize_product_url(abs_url)
+        if self.should_skip_product_url(canon):
+            return
+        queue, seen = self._pending_product_queue()
+        if canon in seen:
+            return
+        queue.append((abs_url, dict(meta)))
+        seen.add(canon)
+        self._crawl_event("PRODUCT_DEFERRED", canonical_url=canon, reason="resource_governance")
+
+    def _drain_pending_product_candidates(self, response: scrapy.http.Response):
+        queue, seen = self._pending_product_queue()
+        drained = 0
+        while queue and drained < _UZUM_PENDING_PRODUCT_DRAIN_LIMIT:
+            abs_url, meta = queue[0]
+            canon = self.canonicalize_product_url(abs_url)
+            sid = self.extract_source_id_from_url(canon)
+            if self.should_skip_product_url(canon):
+                queue.popleft()
+                seen.discard(canon)
+                continue
+            req = self.schedule_product_request(
+                abs_url,
+                response=response,
+                meta=dict(meta),
+            )
+            if req is None:
+                break
+            queue.popleft()
+            seen.discard(canon)
+            self.crawl_registry.remember_product_url(canon)
+            if sid:
+                self.crawl_registry.remember_source_id(sid)
+            drained += 1
+            yield req
+
     def _merge_product_group(
         self,
         group: dict[str, Any],
@@ -772,6 +1196,12 @@ class UzumSpider(BaseProductSpider):
         if "skuId" in query and query["skuId"]:
             normalized_query = urlencode({"skuId": query["skuId"][0]})
         return urlunparse((parsed.scheme, parsed.netloc, parsed.path.rstrip("/"), "", normalized_query, ""))
+
+    def _discovery_mode(self) -> str:
+        raw = str(getattr(self, "discovery_mode", "homepage") or "homepage").strip().lower()
+        if raw in {"homepage", "categories", "hybrid"}:
+            return raw
+        return "homepage"
 
     def _merge_ordered_values(self, *values: Any) -> list[str]:
         out: list[str] = []

@@ -13,15 +13,22 @@ Alifshop is now migrated onto the same raw-output contour as the other stores:
 
 ## Listing flow
 
-- Seeds come directly from the old `E-katalog` category family:
+- Seeds now focus on product-bearing electronics branches instead of catalog hubs that mostly fan out into empty intermediary pages:
   - `/ru/categories/smartfoni-apple`
   - `/ru/categories/smartfoni-samsung`
-- Coverage is now widened carefully with additional high-yield brand branches:
   - `/ru/categories/smartfoni-xiaomi`
   - `/ru/categories/smartfoni-honor`
   - `/ru/categories/smartfoni-tecno`
+  - `/ru/categories/smartfoni-vivo`
+  - `/ru/categories/smart-chasi`
+  - `/ru/categories/fitnes-brasleti`
+  - `/ru/categories/umnie-ochki`
+  - `/ru/categories/umnie-koljca`
+  - `/ru/categories/ekshen-kameri`
+  - `/ru/categories/ochki-virtualjnoy-realjnosti`
 - Listing discovery looks for `/ru|uz/moderated-offer/...` links in anchors and serialized HTML.
-- Nested category discovery follows `/categories/...` links, but keeps traversal restricted to actual smartphone branches and skips accessory / gadget umbrella categories.
+- Nested category discovery follows `/categories/...` links, but keeps traversal restricted to adjacent product-bearing tech branches such as phone brands, wearables, action cameras, and VR pages.
+- Low-value accessory trees like cases, cables, chargers, straps, batteries, protective glass, and generic phone umbrellas are intentionally skipped, as are empty catalog hubs that do not expose PDPs directly.
 - Pagination prefers a normal next link and falls back to synthetic `page=` increments.
 
 ## PDP flow
@@ -65,6 +72,7 @@ Alifshop is now migrated onto the same raw-output contour as the other stores:
 - CSS-class drift in the characteristics block
 - occasional image source changes around Fortifai moderation URLs
 - localized title boilerplate cleanup
+- category allowlist refinement as the public catalog tree evolves
 
 ## Intentionally left downstream
 

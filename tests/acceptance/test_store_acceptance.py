@@ -83,6 +83,7 @@ def test_uzum_listing_extracts_unique_product_urls():
       <a href="/ru/product/demo-phone-111111?skuId=222">one</a>
       <a href="/ru/product/demo-phone-111111?skuId=222">dup</a>
       <a href="https://uzum.uz/ru/product/demo-tv-333333?skuId=444">two</a>
+      <a href="/ru/product/demo-phone-111111/reviews">reviews</a>
       <a href="https://example.com/product/not-uzum">bad</a>
     </body></html>
     """

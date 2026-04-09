@@ -19,13 +19,31 @@ _PRICE_NUM_RE = re.compile(r"(\d[\d\s\u00a0]{3,})")
 _SUM_TEXT_RE = re.compile(r"(\d[\d\s\u00a0]{3,})\s*(?:сум|sum|so['\u2019]?m)", re.I)
 
 
-_ALIFSHOP_SMARTPHONE_PREFIX = "/ru/categories/smartfoni-"
 _ALIFSHOP_LOW_VALUE_CATEGORY_HINTS = (
     "/ru/categories/aksessuari-",
+    "/ru/categories/aksessuary-",
+    "/ru/categories/aksessuari-dlya-tv",
+    "/ru/categories/batareyki-i-akkumulyatori",
     "/ru/categories/chehli-",
     "/ru/categories/coputstvuyuschie-",
+    "/ru/categories/fotobumaga",
+    "/ru/categories/kabeli",
+    "/ru/categories/naruchnie-chasi",
+    "/ru/categories/remeshki-dlya-chasov",
     "/ru/categories/smartfoni-i-gadzheti",
     "/ru/categories/smartfoni-i-telefoni",
+    "/ru/categories/st-kla-i-pl-nki",
+    "/ru/categories/vneshnie-akkumulyatori",
+    "/ru/categories/zaryadnie-ustroystva",
+)
+_ALIFSHOP_TECH_CATEGORY_HINTS = (
+    "/ru/categories/ekshen-kameri",
+    "/ru/categories/fitnes-brasleti",
+    "/ru/categories/ochki-virtualjnoy-realjnosti",
+    "/ru/categories/smart-chasi",
+    "/ru/categories/smartfoni-",
+    "/ru/categories/umnie-koljca",
+    "/ru/categories/umnie-ochki",
 )
 
 
@@ -50,6 +68,13 @@ class AlifshopSpider(BaseProductSpider):
             "https://alifshop.uz/ru/categories/smartfoni-xiaomi",
             "https://alifshop.uz/ru/categories/smartfoni-honor",
             "https://alifshop.uz/ru/categories/smartfoni-tecno",
+            "https://alifshop.uz/ru/categories/smartfoni-vivo",
+            "https://alifshop.uz/ru/categories/smart-chasi",
+            "https://alifshop.uz/ru/categories/fitnes-brasleti",
+            "https://alifshop.uz/ru/categories/umnie-ochki",
+            "https://alifshop.uz/ru/categories/umnie-koljca",
+            "https://alifshop.uz/ru/categories/ekshen-kameri",
+            "https://alifshop.uz/ru/categories/ochki-virtualjnoy-realjnosti",
         )
 
     def is_product_page(self, response: scrapy.http.Response) -> bool:
@@ -126,13 +151,17 @@ class AlifshopSpider(BaseProductSpider):
             if not path or path == current or path in seen:
                 continue
             path_lower = path.lower()
-            if any(low_value in path_lower for low_value in _ALIFSHOP_LOW_VALUE_CATEGORY_HINTS):
-                continue
-            if not path_lower.startswith(_ALIFSHOP_SMARTPHONE_PREFIX):
+            if not self._is_allowed_category_path(path_lower):
                 continue
             seen.add(path)
             out.append(path)
         return sorted(out)
+
+    @staticmethod
+    def _is_allowed_category_path(path: str) -> bool:
+        if any(low_value in path for low_value in _ALIFSHOP_LOW_VALUE_CATEGORY_HINTS):
+            return False
+        return any(path.startswith(prefix) for prefix in _ALIFSHOP_TECH_CATEGORY_HINTS)
 
     def extract_next_page_url(self, response: scrapy.http.Response) -> str | None:
         next_href = (

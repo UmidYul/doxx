@@ -12,6 +12,9 @@ Deep dive: [`mediapark_new.md`](mediapark_new.md).
 
 ## Listing flow
 
+- Default discovery now starts from the live product sitemap index `https://mediapark.uz/product-view/products.xml`, then fans out into `.../detailed.xml` leaf sitemaps that expose large batches of PDP URLs.
+- Each detailed sitemap includes regional duplicates like `/tashkent/products/view/...`; the spider canonicalizes them back to the root PDP so one product is scraped once.
+- Legacy category seeds remain available as a fallback by running the spider with `-a discovery_mode=categories` or `-a discovery_mode=hybrid`.
 - Category seeds come from `start_category_urls()` and now cover four high-yield tech branches instead of the earlier phone-only entrypoint:
   - `smartfony-40`
   - `noutbuki-313`
@@ -58,11 +61,12 @@ Persistence then writes the item into `raw_products`, `raw_product_images`, `raw
 
 MediaPark stays closest to the old `E-katalog` behavior by preferring stable embedded data before brittle DOM text:
 
-1. listing discovery from inline HTML / escaped script payloads for `/products/view/...`
-2. `source_id` from the trailing numeric PDP slug
-3. Product JSON-LD for title, price, stock, description, brand, and base images
-4. Next.js payloads (`__next_f`, `__NEXT_DATA__`) for raw specs and extra images
-5. DOM tables / body text as fallback only when structured payloads are incomplete
+1. product sitemap discovery from `products.xml` -> `detailed.xml`
+2. listing discovery from inline HTML / escaped script payloads for `/products/view/...`
+3. `source_id` from the trailing numeric PDP slug
+4. Product JSON-LD for title, price, stock, description, brand, and base images
+5. Next.js payloads (`__next_f`, `__NEXT_DATA__`) for raw specs and extra images
+6. DOM tables / body text as fallback only when structured payloads are incomplete
 
 This keeps scraper output raw and store-native while avoiding deep normalization.
 

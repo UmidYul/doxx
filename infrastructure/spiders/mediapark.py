@@ -72,6 +72,7 @@ _LOW_VALUE_CATEGORY_SLUGS: frozenset[str] = frozenset(
 _PRODUCT_URL_RE = re.compile(r"https?://[^/]+/products/view/[^/?#]+", re.I)
 _PRODUCT_PATH_RE = re.compile(r"/products/view/[a-z0-9-]+-\d+", re.I)
 _CATEGORY_URL_RE = re.compile(r"https?://[^/]+/products/category/[^\"'\s<>]+", re.I)
+_SITEMAP_LOC_RE = re.compile(r"<loc>\s*(https?://[^<\s]+)\s*</loc>", re.I)
 _STOCK_OUT_PATTERNS = re.compile(
     r"нет\s+в\s+наличии|недоступен\s+к\s+заказу|товар\s+не\s+найден|страница\s+не\s+найдена|out\s+of\s+stock|schema\.org/OutOfStock",
     re.I,
@@ -85,12 +86,32 @@ _RSC_SPEC_PAIR_RE = re.compile(
     r'"choices"\s*:\s*\[\s*\{\s*"id"\s*:\s*"[^"]+"\s*,\s*"name"\s*:\s*\{\s*"uz"\s*:\s*"[^"]*"\s*,\s*"ru"\s*:\s*"([^"]+)"',
     re.DOTALL,
 )
+_SITEMAP_DETAIL_RE = re.compile(r"/product-view/\d+/detailed\.xml$", re.I)
+_MEDIAPARK_LOCATION_SLUGS: frozenset[str] = frozenset(
+    {
+        "tashkent",
+        "jizzakh",
+        "namangan",
+        "samarkand",
+        "surxondaryo",
+        "sirdaryo",
+        "fergana",
+        "khorezm",
+        "navoiy",
+        "qashqadaryo",
+        "karakalpakstan",
+        "bukhara",
+        "andijan",
+    }
+)
+_PRODUCT_DETAIL_SUFFIXES: tuple[str, ...] = ("/characteristics", "/feedback", "/shops")
 
 
 class MediaparkSpider(BaseProductSpider):
     name = "mediapark"
     store_name = "mediapark"
     allowed_domains = ["mediapark.uz", "www.mediapark.uz"]
+    product_sitemap_index_url = "https://mediapark.uz/product-view/products.xml"
     _MAX_CATEGORY_PAGES = 12
     _MAX_EMPTY_OR_DUP_STREAK = 2
 
@@ -117,8 +138,41 @@ class MediaparkSpider(BaseProductSpider):
             "https://mediapark.uz/products/category/gadzhety-18/smart-chasy-51",
         )
 
+    def start_requests(self):
+        discovery_mode = self._discovery_mode()
+        if discovery_mode in {"sitemap", "hybrid"}:
+            self.crawl_registry.categories_started_total += 1
+            self._crawl_event(
+                "CATEGORY_START",
+                category_url=self.product_sitemap_index_url,
+                page=1,
+                discovery_mode=discovery_mode,
+            )
+            req = self.schedule_safe_request(
+                self.product_sitemap_index_url,
+                callback=self.parse_product_sitemap_index,
+                purpose="listing",
+                meta={
+                    "category_url": self.product_sitemap_index_url,
+                    "page": 1,
+                    "empty_streak": 0,
+                    "dup_sig_streak": 0,
+                },
+            )
+            if req is not None:
+                yield req
+            if discovery_mode == "sitemap":
+                return
+        yield from super().start_requests()
+
     def is_product_page(self, response: scrapy.http.Response) -> bool:
         return "/products/view/" in response.url
+
+    def canonicalize_product_url(self, url: str) -> str:
+        canonical = super().canonicalize_product_url(url)
+        parts = urlsplit(canonical)
+        path = self._normalize_product_path(parts.path or "")
+        return urlunsplit((parts.scheme, parts.netloc, path, parts.query, parts.fragment))
 
     def extract_listing_product_urls(self, response: scrapy.http.Response) -> list[str]:
         return self._extract_product_links(response.text, base_url=response.url)
@@ -127,6 +181,8 @@ class MediaparkSpider(BaseProductSpider):
         return self._extract_category_links(response.text, base_url=response.url, current_url=response.url)
 
     def extract_next_page_url(self, response: scrapy.http.Response) -> str | None:
+        if response.url.lower().endswith(".xml"):
+            return None
         if not self._extract_product_links(response.text, base_url=response.url):
             return None
         current_page = self._page_number(response.url)
@@ -209,6 +265,178 @@ class MediaparkSpider(BaseProductSpider):
             "external_ids": external_ids,
         }
 
+    def parse_product_sitemap_index(self, response: scrapy.http.Response):
+        detailed_sitemaps: list[str] = []
+        seen: set[str] = set()
+        for sitemap_url in self._extract_sitemap_locs(response.text):
+            if not _SITEMAP_DETAIL_RE.search(sitemap_url):
+                continue
+            if sitemap_url in seen:
+                continue
+            seen.add(sitemap_url)
+            detailed_sitemaps.append(sitemap_url)
+
+        if not detailed_sitemaps:
+            return
+
+        first_url = detailed_sitemaps[0]
+        self.crawl_registry.categories_started_total += 1
+        self._crawl_event(
+            "CATEGORY_DISCOVERED",
+            parent_category_url=response.url,
+            discovered_category_url=first_url,
+            page=1,
+        )
+        req = self.schedule_safe_request(
+            first_url,
+            callback=self.parse_product_sitemap_leaf,
+            purpose="product",
+            priority=-20,
+            meta={
+                "category_url": first_url,
+                "page": 1,
+                "empty_streak": 0,
+                "dup_sig_streak": 0,
+                "sitemap_detailed_urls": detailed_sitemaps,
+                "sitemap_leaf_index": 0,
+                "sitemap_product_offset": 0,
+            },
+        )
+        if req is not None:
+            yield req
+
+    def parse_product_sitemap_leaf(self, response: scrapy.http.Response):
+        reg = self.crawl_registry
+        category_url = str(response.meta.get("category_url") or response.url)
+        detailed_sitemaps = list(response.meta.get("sitemap_detailed_urls") or [response.url])
+        leaf_index = int(response.meta.get("sitemap_leaf_index") or 0)
+        offset = int(response.meta.get("sitemap_product_offset") or 0)
+
+        product_urls = list(self._iter_root_product_urls_from_sitemap(response.text))
+        if offset == 0:
+            reg.remember_listing_page_url(response.url)
+            reg.listing_pages_seen_total += 1
+            extracted_count = len(product_urls)
+            if extracted_count == 0:
+                reg.record_zero_result_category(category_url)
+            else:
+                reg.record_category_with_results(category_url)
+            reg.listing_cards_seen_total += extracted_count
+            reg.record_listing_stats(listing_url=response.url, product_urls_found=extracted_count)
+            self._crawl_event(
+                "LISTING_PAGE",
+                category_url=category_url,
+                page=1,
+                extracted_count=extracted_count,
+                canonical_url=response.url,
+                discovery_mode="sitemap_leaf",
+            )
+
+        page_seen_urls: set[str] = set()
+        page_seen_source_ids: set[str] = set()
+        batch_end = min(offset + self._sitemap_product_batch_size(), len(product_urls))
+        next_offset = offset
+        for index in range(offset, batch_end):
+            product_url = product_urls[index]
+            canonical_url = self.canonicalize_product_url(product_url)
+            source_id = self.extract_source_id_from_url(canonical_url)
+            reg.product_urls_seen_total += 1
+            if canonical_url in page_seen_urls or (source_id and source_id in page_seen_source_ids):
+                reg.product_urls_deduped_total += 1
+                self._crawl_event(
+                    "PRODUCT_DEDUPED",
+                    category_url=category_url,
+                    page=1,
+                    canonical_url=canonical_url,
+                    reason="sitemap_page_duplicate",
+                )
+                next_offset = index + 1
+                continue
+            if self.should_skip_product_url(canonical_url):
+                reg.product_urls_deduped_total += 1
+                self._crawl_event(
+                    "PRODUCT_DEDUPED",
+                    category_url=category_url,
+                    page=1,
+                    canonical_url=canonical_url,
+                    reason="url_or_source_id_seen",
+                )
+                next_offset = index + 1
+                continue
+            req = self.schedule_safe_request(
+                canonical_url,
+                callback=self.parse,
+                purpose="product",
+                priority=20,
+                meta={
+                    "from_listing": response.url,
+                    "category_url": category_url,
+                },
+            )
+            if req is None:
+                self._crawl_event(
+                    "PRODUCT_SCHEDULE_BLOCKED",
+                    category_url=category_url,
+                    page=1,
+                    canonical_url=canonical_url,
+                    reason="resource_or_policy_gate",
+                )
+                break
+            reg.remember_product_url(canonical_url)
+            page_seen_urls.add(canonical_url)
+            if source_id:
+                reg.remember_source_id(source_id)
+                page_seen_source_ids.add(source_id)
+            next_offset = index + 1
+            yield req
+
+        if next_offset < len(product_urls):
+            yield self._build_internal_sitemap_request(
+                response.url,
+                meta={
+                    "category_url": category_url,
+                    "page": 1,
+                    "empty_streak": 0,
+                    "dup_sig_streak": 0,
+                    "sitemap_detailed_urls": detailed_sitemaps,
+                    "sitemap_leaf_index": leaf_index,
+                    "sitemap_product_offset": next_offset,
+                },
+            )
+            return
+
+        next_leaf_index = leaf_index + 1
+        if next_leaf_index < len(detailed_sitemaps):
+            next_leaf_url = str(detailed_sitemaps[next_leaf_index])
+            self.crawl_registry.categories_started_total += 1
+            self._crawl_event(
+                "CATEGORY_DISCOVERED",
+                parent_category_url=response.url,
+                discovered_category_url=next_leaf_url,
+                page=1,
+            )
+            req = self._build_internal_sitemap_request(
+                next_leaf_url,
+                meta={
+                    "category_url": next_leaf_url,
+                    "page": 1,
+                    "empty_streak": 0,
+                    "dup_sig_streak": 0,
+                    "sitemap_detailed_urls": detailed_sitemaps,
+                    "sitemap_leaf_index": next_leaf_index,
+                    "sitemap_product_offset": 0,
+                },
+            )
+            yield req
+            return
+
+        self._crawl_event(
+            "PAGINATION_STOP",
+            category_url=category_url,
+            page=1,
+            reason="sitemap_leaf_complete",
+        )
+
     @staticmethod
     def _extract_product_links(html: str, *, base_url: str) -> list[str]:
         normalized_html = html.replace("\\/", "/")
@@ -274,6 +502,82 @@ class MediaparkSpider(BaseProductSpider):
         query = dict(parse_qsl(urlsplit(url).query, keep_blank_values=True))
         raw = str(query.get("page") or "").strip()
         return int(raw) if raw.isdigit() else 1
+
+    @staticmethod
+    def _extract_sitemap_locs(xml_text: str) -> list[str]:
+        return [match.strip() for match in _SITEMAP_LOC_RE.findall(xml_text) if match.strip()]
+
+    @staticmethod
+    def _normalize_product_path(path: str) -> str:
+        clean = path.replace("\\", "/")
+        if clean.startswith("/ru/"):
+            clean = clean[3:]
+        elif clean.startswith("/uz/"):
+            clean = clean[3:]
+        elif clean.startswith("/kr/"):
+            clean = clean[3:]
+
+        match = re.match(r"^/([^/]+)/products/view/(.+)$", clean, re.I)
+        if match and match.group(1).lower() in _MEDIAPARK_LOCATION_SLUGS:
+            clean = f"/products/view/{match.group(2)}"
+
+        for suffix in _PRODUCT_DETAIL_SUFFIXES:
+            if clean.lower().endswith(suffix):
+                clean = clean[: -len(suffix)]
+                break
+        return clean
+
+    def _iter_root_product_urls_from_sitemap(self, xml_text: str) -> Iterator[str]:
+        seen: set[str] = set()
+        for url in self._extract_sitemap_locs(xml_text):
+            if "/products/view/" not in url.lower():
+                continue
+            canonical = self.canonicalize_product_url(url)
+            if canonical in seen:
+                continue
+            seen.add(canonical)
+            yield canonical
+
+    @staticmethod
+    def _sitemap_product_batch_size() -> int:
+        return 5
+
+    def _build_internal_sitemap_request(
+        self,
+        url: str,
+        *,
+        meta: dict[str, Any],
+        priority: int = -20,
+    ) -> scrapy.Request:
+        from infrastructure.access.header_profiles import build_desktop_headers
+        from infrastructure.access.request_strategy import build_request_meta
+
+        req_meta = {
+            **meta,
+            **build_request_meta(
+                self.store_name or self.name,
+                "product",
+                spider_supports_browser=self._supports_playwright(),
+                record_mode_metrics=False,
+                target_url=url,
+            ),
+        }
+        headers = build_desktop_headers(self.store_name or self.name, "product")
+        return scrapy.Request(
+            url,
+            callback=self.parse_product_sitemap_leaf,
+            errback=self.errback_default,
+            meta=req_meta,
+            headers=headers,
+            priority=priority,
+            dont_filter=True,
+        )
+
+    def _discovery_mode(self) -> str:
+        raw = str(getattr(self, "discovery_mode", "sitemap") or "sitemap").strip().lower()
+        if raw in {"sitemap", "categories", "hybrid"}:
+            return raw
+        return "sitemap"
 
     @staticmethod
     def _looks_like_missing_product(response: scrapy.http.Response) -> bool:

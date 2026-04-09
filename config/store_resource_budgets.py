@@ -44,15 +44,15 @@ def _mediapark() -> StoreResourceBudget:
 def _uzum() -> StoreResourceBudget:
     return StoreResourceBudget(
         store_name="uzum",
-        max_concurrent_requests=8,
+        max_concurrent_requests=12,
         max_listing_requests=4,
-        max_product_requests=5,
+        max_product_requests=12,
         max_batch_inflight=2,
         max_retryable_queue=80,
         max_browser_pages=3,
         max_proxy_requests=4,
         max_memory_mb=448,
-        notes=["browser_listing_plain_pdp_mix", "balanced_for_bounded_quality_runs"],
+        notes=["browser_listing_plain_pdp_mix", "homepage_graph_needs_more_http_headroom"],
     )
 
 

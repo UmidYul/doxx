@@ -30,11 +30,13 @@ What was intentionally **not** ported from the old project:
 
 ## Listing Flow
 
-1. Seeds come from `start_category_urls()`.
-2. Listing discovery scans the HTML and escaped script payloads for product URLs matching `/products/view/...`.
-3. Nested MediaPark category hubs are discovered from `/products/category/...` links, but only for the targeted smartphone hub family.
-4. Pagination is synthetic: page `N+1` is built by mutating the query string, just like the old parser approach.
-5. Pagination stops on:
+1. Default discovery starts from the live product sitemap index `https://mediapark.uz/product-view/products.xml`.
+2. The spider follows only `.../detailed.xml` leaf sitemaps and canonicalizes regional URL variants like `/tashkent/products/view/...` back to the root PDP.
+3. Legacy seeds from `start_category_urls()` remain available as a fallback with `-a discovery_mode=categories` or mixed mode with `-a discovery_mode=hybrid`.
+4. Listing discovery scans the HTML and escaped script payloads for product URLs matching `/products/view/...`.
+5. Nested MediaPark category hubs are discovered from `/products/category/...` links, but only for the targeted smartphone hub family.
+6. Pagination is synthetic: page `N+1` is built by mutating the query string, just like the old parser approach.
+7. Pagination stops on:
    - no next URL
    - `12` pages reached
    - `2` empty listing repeats
