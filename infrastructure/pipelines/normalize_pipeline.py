@@ -16,11 +16,15 @@ from infrastructure.observability.correlation import build_correlation_context
 from infrastructure.observability.event_logger import log_sync_event
 from infrastructure.observability.failure_classifier import classify_normalization_issue
 from infrastructure.observability.payload_summary import summarize_normalized_payload
+from infrastructure.spiders.product_classifier import infer_known_brand
 from application.normalization.light_normalizer import (
     build_external_ids,
     derive_category_hint,
     extract_barcode,
+    extract_brand_from_raw_specs,
+    extract_compatibility_targets,
     extract_model_name,
+    extract_model_name_from_raw_specs,
     normalize_image_urls,
     normalize_price_value,
     normalize_stock_value,
@@ -57,15 +61,21 @@ class NormalizePipeline:
         price_raw = price_str or None
         price_value = normalize_price_value(price_str) if price_str else None
 
-        brand_raw = item.get("brand") or ""
-        brand = normalize_brand(brand_raw) if brand_raw else None
-
-        in_stock = normalize_stock_value(item.get("in_stock"))
-
         raw_in = dict(item.get("raw_specs") or {})
         spider_cat = item.get("category_hint") or item.get("category") or raw_in.get("_category_hint")
         raw_specs = sanitize_raw_specs(raw_in)
         raw_specs.pop("_category_hint", None)
+
+        brand_raw = item.get("brand") or ""
+        brand = normalize_brand(brand_raw) if brand_raw else None
+        if not brand:
+            spec_brand = extract_brand_from_raw_specs(raw_specs)
+            brand = normalize_brand(spec_brand) if spec_brand else None
+        if not brand:
+            inferred_brand = infer_known_brand(title_clean)
+            brand = normalize_brand(inferred_brand) if inferred_brand else None
+
+        in_stock = normalize_stock_value(item.get("in_stock"))
 
         barcode = extract_barcode(raw_specs)
         category_hint = derive_category_hint(url, title_clean, raw_specs, spider_hint=spider_cat)
@@ -158,7 +168,19 @@ class NormalizePipeline:
                 "unmapped_fields_count": map_meta.get("unmapped_fields_count", 0),
             }
 
-        model_name = extract_model_name(title_clean, brand, category_hint)
+        compatibility_targets = extract_compatibility_targets(
+            title_clean,
+            category_hint=category_hint,
+            raw_specs=raw_specs,
+        )
+        spec_model_name = extract_model_name_from_raw_specs(
+            raw_specs,
+            brand=brand,
+            category_hint=category_hint,
+            compatibility_targets=compatibility_targets,
+        )
+        title_model_name = extract_model_name(title_clean, brand, category_hint)
+        model_name = spec_model_name or title_model_name
         external_ids = build_external_ids(store, source_id)
 
         desc = item.get("description")

@@ -263,9 +263,14 @@ def normalize_battery_wh(raw: str | None) -> float | None:
 # Weight (grams — phones)
 # ---------------------------------------------------------------------------
 
-_KG_PATTERN = re.compile(r"(\d+[.,]?\d*)\s*(?:кг|kg)", re.IGNORECASE)
-_G_PATTERN = re.compile(
-    r"(\d+[.,]?\d*)\s*(?:г(?!б|Б)|g(?!b|B)|грамм\w*|gram\w*)", re.IGNORECASE
+_KG_UNIT_FRAGMENT = "(?:kg|\u043a\u0433)"
+_G_UNIT_FRAGMENT = "(?:g(?!b|B)|\u0433(?!\u0431|\u0411)|\u0433\u0440\u0430\u043c\u043c\\w*|gram\\w*)"
+_KG_PATTERN = re.compile(rf"(\d+[.,]?\d*)\s*{_KG_UNIT_FRAGMENT}", re.IGNORECASE)
+_G_PATTERN = re.compile(rf"(\d+[.,]?\d*)\s*{_G_UNIT_FRAGMENT}", re.IGNORECASE)
+_WEIGHT_COMPOSITE_RE = re.compile(
+    rf"(?:\d+(?:[.,]\d+)?\s*(?:{_KG_UNIT_FRAGMENT}|{_G_UNIT_FRAGMENT})\s*(?:[-/+])\s*\d+(?:[.,]\d+)?(?:\s*(?:{_KG_UNIT_FRAGMENT}|{_G_UNIT_FRAGMENT}))?"
+    rf"|\d+(?:[.,]\d+)?\s*(?:[-/+])\s*\d+(?:[.,]\d+)?\s*(?:{_KG_UNIT_FRAGMENT}|{_G_UNIT_FRAGMENT}))",
+    re.IGNORECASE,
 )
 
 
@@ -276,17 +281,23 @@ def normalize_weight_g(raw: str | None) -> int | None:
     if not raw:
         return None
 
-    m = _KG_PATTERN.search(raw)
-    if m:
-        val = float(m.group(1).replace(",", "."))
+    if _WEIGHT_COMPOSITE_RE.search(raw):
+        return None
+
+    kg_matches = list(_KG_PATTERN.finditer(raw))
+    g_matches = list(_G_PATTERN.finditer(raw))
+    if len(kg_matches) + len(g_matches) > 1:
+        return None
+
+    if len(kg_matches) == 1:
+        val = float(kg_matches[0].group(1).replace(",", "."))
         result = int(val * 1000)
         if 50 <= result <= 50000:
             return result
         return None
 
-    m = _G_PATTERN.search(raw)
-    if m:
-        val = float(m.group(1).replace(",", "."))
+    if len(g_matches) == 1:
+        val = float(g_matches[0].group(1).replace(",", "."))
         result = int(val)
         if 50 <= result <= 50000:
             return result
@@ -305,16 +316,22 @@ def normalize_weight_kg(raw: str | None) -> float | None:
     if not raw:
         return None
 
-    m = _KG_PATTERN.search(raw)
-    if m:
-        val = float(m.group(1).replace(",", "."))
+    if _WEIGHT_COMPOSITE_RE.search(raw):
+        return None
+
+    kg_matches = list(_KG_PATTERN.finditer(raw))
+    g_matches = list(_G_PATTERN.finditer(raw))
+    if len(kg_matches) + len(g_matches) > 1:
+        return None
+
+    if len(kg_matches) == 1:
+        val = float(kg_matches[0].group(1).replace(",", "."))
         if 0.1 <= val <= 50.0:
             return round(val, 2)
         return None
 
-    m = _G_PATTERN.search(raw)
-    if m:
-        val = float(m.group(1).replace(",", "."))
+    if len(g_matches) == 1:
+        val = float(g_matches[0].group(1).replace(",", "."))
         result = round(val / 1000, 2)
         if 0.1 <= result <= 50.0:
             return result
@@ -414,26 +431,172 @@ def _load_processor_aliases() -> dict[str, str]:
     return _PROCESSOR_ALIASES
 
 
-def normalize_processor(raw: str | None, aliases: dict | None = None) -> str | None:
+_STRING_UNKNOWN_VALUES = frozenset({
+    "-", "—", "n/a", "na", "none", "null", "unknown", "not specified",
+    "не указано", "неизвестно", "нет данных", "отсутствует", "нет",
+    "йўқ", "yo'q",
+})
+_NO_OS_VALUES = frozenset({
+    "без ос", "без операционной системы", "no os",
+})
+_STRING_FIELD_LABEL_PATTERNS: dict[str, re.Pattern[str]] = {
+    "processor": re.compile(
+        r"^(?:processor|cpu|процессор|модель процессора)\s*[:\-–—]?\s*",
+        re.IGNORECASE,
+    ),
+    "gpu": re.compile(
+        r"^(?:gpu|graphics(?: processor)?|video card|видеокарта|видеопроцессор|графический процессор)\s*[:\-–—]?\s*",
+        re.IGNORECASE,
+    ),
+    "os": re.compile(
+        r"^(?:os|операционная система|ос)\s*[:\-–—]?\s*",
+        re.IGNORECASE,
+    ),
+    "display_type": re.compile(
+        r"^(?:display type|screen type|тип экрана|тип дисплея)\s*[:\-–—]?\s*",
+        re.IGNORECASE,
+    ),
+    "display_tech": re.compile(
+        r"^(?:display tech(?:nology)?|screen tech(?:nology)?|технология экрана|технология дисплея)\s*[:\-–—]?\s*",
+        re.IGNORECASE,
+    ),
+    "storage_type": re.compile(
+        r"^(?:storage type|тип накопителя|тип памяти)\s*[:\-–—]?\s*",
+        re.IGNORECASE,
+    ),
+    "display_resolution": re.compile(
+        r"^(?:display resolution|screen resolution|разрешение экрана|разрешение)\s*[:\-–—]?\s*",
+        re.IGNORECASE,
+    ),
+    "resolution": re.compile(
+        r"^(?:resolution|разрешение)\s*[:\-–—]?\s*",
+        re.IGNORECASE,
+    ),
+    "energy_class": re.compile(
+        r"^(?:energy class|класс энергопотребления|энергокласс)\s*[:\-–—]?\s*",
+        re.IGNORECASE,
+    ),
+}
+_DISPLAY_VALUE_CANONICAL_MAP = {
+    "amoled": "AMOLED",
+    "super amoled": "Super AMOLED",
+    "dynamic amoled": "Dynamic AMOLED",
+    "ltpo amoled": "LTPO AMOLED",
+    "oled": "OLED",
+    "ips": "IPS",
+    "ips lcd": "IPS LCD",
+    "lcd": "LCD",
+    "tft": "TFT",
+    "tn": "TN",
+    "va": "VA",
+    "pls": "PLS",
+    "qled": "QLED",
+    "mini led": "Mini LED",
+    "micro led": "Micro LED",
+    "retina": "Retina",
+}
+_STORAGE_TYPE_CANONICAL_MAP = {
+    "ssd": "SSD",
+    "hdd": "HDD",
+    "emmc": "eMMC",
+    "ufs": "UFS",
+    "nvme": "NVMe",
+    "nvme ssd": "NVMe SSD",
+}
+_OS_PREFIX_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"^android\b", re.IGNORECASE), "Android"),
+    (re.compile(r"^android tv\b", re.IGNORECASE), "Android TV"),
+    (re.compile(r"^ios\b", re.IGNORECASE), "iOS"),
+    (re.compile(r"^ipados\b", re.IGNORECASE), "iPadOS"),
+    (re.compile(r"^windows\b", re.IGNORECASE), "Windows"),
+    (re.compile(r"^macos\b", re.IGNORECASE), "macOS"),
+    (re.compile(r"^linux\b", re.IGNORECASE), "Linux"),
+    (re.compile(r"^ubuntu\b", re.IGNORECASE), "Ubuntu"),
+    (re.compile(r"^freedos\b", re.IGNORECASE), "FreeDOS"),
+    (re.compile(r"^dos\b", re.IGNORECASE), "DOS"),
+    (re.compile(r"^harmony\s*os\b", re.IGNORECASE), "HarmonyOS"),
+    (re.compile(r"^web\s*os\b", re.IGNORECASE), "webOS"),
+    (re.compile(r"^tizen\b", re.IGNORECASE), "Tizen"),
+)
+
+
+def _collapse_string_whitespace(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _normalize_string_key(text: str) -> str:
+    return _collapse_string_whitespace(text).strip(" :;,-–—").lower()
+
+
+def _strip_string_field_label(field_name: str, text: str) -> str:
+    pattern = _STRING_FIELD_LABEL_PATTERNS.get(field_name)
+    if pattern:
+        text = pattern.sub("", text)
+    return text.strip(" :;,-–—")
+
+
+def _prepare_string_field_text(field_name: str, raw: str | None) -> str | None:
     if raw is None:
         return None
-    raw = raw.strip()
-    if not raw:
+    text = _collapse_string_whitespace(raw)
+    if not text:
+        return None
+    text = _strip_string_field_label(field_name, text)
+    if not text:
+        return None
+    if _normalize_string_key(text) in _STRING_UNKNOWN_VALUES:
+        return None
+    return text
+
+
+def _canonicalize_prefixed_value(text: str, patterns: tuple[tuple[re.Pattern[str], str], ...]) -> str:
+    for pattern, canonical in patterns:
+        match = pattern.match(text)
+        if not match:
+            continue
+        rest = text[match.end():].strip()
+        return canonical if not rest else f"{canonical} {rest}"
+    return text
+
+
+def normalize_string_field(field_name: str, raw: str | None) -> str | None:
+    text = _prepare_string_field_text(field_name, raw)
+    if text is None:
+        return None
+
+    key = _normalize_string_key(text)
+    if field_name in {"display_resolution", "resolution"}:
+        return normalize_resolution(text)
+    if field_name == "energy_class":
+        return normalize_energy_class(text)
+    if field_name == "os":
+        if key in _NO_OS_VALUES:
+            return "No OS"
+        return _canonicalize_prefixed_value(text, _OS_PREFIX_PATTERNS)
+    if field_name in {"display_type", "display_tech"}:
+        return _DISPLAY_VALUE_CANONICAL_MAP.get(key, text)
+    if field_name == "storage_type":
+        return _STORAGE_TYPE_CANONICAL_MAP.get(key, text)
+    return text
+
+
+def normalize_processor(raw: str | None, aliases: dict | None = None) -> str | None:
+    cleaned = _prepare_string_field_text("processor", raw)
+    if cleaned is None:
         return None
 
     if aliases is None:
         aliases = _load_processor_aliases()
 
-    if raw in aliases:
-        return aliases[raw]
+    if cleaned in aliases:
+        return aliases[cleaned]
 
-    lower = raw.lower()
+    lower = cleaned.lower()
     for key, val in aliases.items():
         if key.lower() == lower:
             return val
 
-    cleaned = re.sub(r"\s+", " ", raw).strip()
-    return cleaned if cleaned else None
+    return cleaned
 
 
 # ---------------------------------------------------------------------------
@@ -852,7 +1015,7 @@ def normalize_resolution(raw: str | None) -> str | None:
     raw = raw.strip()
     if not raw:
         return None
-    cleaned = re.sub(r"\s*[×хXx]\s*", "x", raw)
+    cleaned = re.sub(r"\s*[\u00D7xX\u0445\u0425*]\s*", "x", raw)
     return cleaned
 
 
@@ -958,8 +1121,7 @@ def normalize_field_value(field_name: str, raw_value: str) -> object:
         return result if result is not None else _infer_boolean_feature(field_name, raw_value)
 
     if field_name in _STRING_FIELDS:
-        v = raw_value.strip()
-        return v if v else None
+        return normalize_string_field(field_name, raw_value)
 
     fn = _NORMALIZERS.get(field_name)
     if fn:

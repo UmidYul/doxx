@@ -33,6 +33,8 @@ class CrmSyncItem(BaseModel):
     in_stock: bool | None = None
 
     raw_specs: dict[str, Any] = Field(default_factory=dict)
+    normalized_spec_labels: dict[str, str] = Field(default_factory=dict)
+    compatibility_targets: list[str] = Field(default_factory=list)
     typed_specs: dict[str, Any] = Field(default_factory=dict)
     normalization_warnings: list[str] = Field(default_factory=list)
     spec_coverage: dict[str, Any] = Field(default_factory=dict)

@@ -14,6 +14,8 @@ REQUIRED_CRM_SYNC_KEYS = frozenset(
         "title",
         "sync_mode",
         "raw_specs",
+        "normalized_spec_labels",
+        "compatibility_targets",
         "typed_specs",
         "normalization_warnings",
         "spec_coverage",

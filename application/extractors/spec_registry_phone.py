@@ -93,6 +93,7 @@ CATEGORY_ALIAS_RULES: tuple[SpecAliasRule, ...] = (
     _ar("стандарт wi-fi", "has_wifi"),
     _ar("версия bluetooth", "has_bluetooth"),
     _ar("беспроводные интерфейсы", "has_wifi"),
+    _ar("беспроводные интерфейсы", "has_bluetooth"),
     # Processor
     _ar("чипсет", "processor"),
     _ar("chipset", "processor"),

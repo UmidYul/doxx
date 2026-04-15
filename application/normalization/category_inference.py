@@ -156,12 +156,13 @@ def _join_raw_specs(raw_specs: Mapping[str, object] | None) -> str:
     if not raw_specs:
         return ""
     parts: list[str] = []
-    for key, value in raw_specs.items():
-        key_s = str(key or "").strip()
+    for value in raw_specs.values():
         value_s = str(value or "").strip()
-        if not key_s and not value_s:
+        if not value_s:
             continue
-        parts.append(f"{key_s} {value_s}".strip())
+        # Product-type inference should follow value semantics, not generic
+        # attribute labels like "charger type" or "wireless interfaces".
+        parts.append(value_s)
     return " ".join(parts)
 
 
@@ -200,11 +201,12 @@ def infer_category_hint(
 ) -> str:
     """Return the best-effort category using stable deterministic heuristics."""
     title_signal = _classify_text(title)
+    if title_signal:
+        return title_signal
+
     specs_signal = _classify_text(_join_raw_specs(raw_specs))
-    explicit_signals = [signal for signal in (title_signal, specs_signal) if signal]
-    for category in ("accessory", "tablet", "laptop", "tv", "monitor", "gaming", "appliance", "phone"):
-        if category in explicit_signals:
-            return category
+    if specs_signal:
+        return specs_signal
 
     url_signal, url_is_hard = _classify_url(url)
     if url_is_hard and url_signal:

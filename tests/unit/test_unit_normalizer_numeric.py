@@ -8,9 +8,12 @@ from application.extractors.unit_normalizer import (
     normalize_int_field,
     normalize_power_w,
     normalize_refresh_rate,
+    normalize_resolution,
     normalize_storage,
     normalize_volume_l,
     normalize_warranty_months,
+    normalize_weight_g,
+    normalize_weight_kg,
 )
 
 
@@ -69,6 +72,26 @@ def test_normalize_battery_wh_keeps_single_explicit_value() -> None:
     assert normalize_battery_wh("56.5 Wh") == 56.5
 
 
+def test_normalize_weight_g_rejects_composite_values() -> None:
+    assert normalize_weight_g("190/210 g") is None
+    assert normalize_weight_g("0.19 kg / 190 g") is None
+
+
+def test_normalize_weight_g_keeps_single_explicit_value() -> None:
+    assert normalize_weight_g("0.19 kg") == 190
+    assert normalize_weight_g("190 g") == 190
+
+
+def test_normalize_weight_kg_rejects_composite_values() -> None:
+    assert normalize_weight_kg("1.9/2.1 kg") is None
+    assert normalize_weight_kg("1.9 + 0.2 kg") is None
+
+
+def test_normalize_weight_kg_keeps_single_explicit_value() -> None:
+    assert normalize_weight_kg("1900 g") == 1.9
+    assert normalize_weight_kg("1.9 kg") == 1.9
+
+
 def test_normalize_display_rejects_composite_sizes_and_dimensions() -> None:
     assert normalize_display("6.1/6.7 inch") is None
     assert normalize_display("2400x1080") is None
@@ -98,6 +121,12 @@ def test_normalize_warranty_months_rejects_ambiguous_ranges() -> None:
 def test_normalize_warranty_months_keeps_single_explicit_value() -> None:
     assert normalize_warranty_months("2 years") == 24
     assert normalize_warranty_months("24") == 24
+
+
+def test_normalize_resolution_canonicalizes_multiplication_variants() -> None:
+    assert normalize_resolution("2400 x 1080") == "2400x1080"
+    assert normalize_resolution("1920*1080") == "1920x1080"
+    assert normalize_resolution("3840×2160") == "3840x2160"
 
 
 def test_normalize_refresh_rate_rejects_ambiguous_values() -> None:

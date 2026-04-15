@@ -158,3 +158,125 @@ def test_normalize_pipeline_accessory_policy_rejects_phone_like_typed_specs():
     assert "ram_gb" not in typed
     assert "storage_gb" not in typed
     assert "processor" not in typed
+
+
+def test_normalize_pipeline_phone_title_not_downgraded_by_accessoryish_spec_labels():
+    item = {
+        "source": "s",
+        "url": "https://x/p/smartfon-honor-200-pro",
+        "title": "Smartfon HONOR 200 PRO 12/512 Cyan Blue",
+        "source_id": "1",
+        "price_str": "1",
+        "in_stock": True,
+        "category_hint": "phone",
+        "raw_specs": {
+            "charger type": "USB Type-C",
+            "wi-fi": "802.11ax",
+            "bluetooth": "5.3",
+            "ram_gb": "12 GB",
+            "storage_gb": "512 GB",
+        },
+        "image_urls": [],
+    }
+    NormalizePipeline().process_item(item, MagicMock(store_name="s"))
+    norm = item["_normalized"]
+    assert norm["category_hint"] == "phone"
+    assert norm["typed_specs"].get("has_wifi") is True
+    assert norm["typed_specs"].get("has_bluetooth") is True
+    assert norm["typed_specs"].get("ram_gb") == 12
+    assert norm["typed_specs"].get("storage_gb") == 512
+
+
+def test_normalize_pipeline_infers_known_brand_from_title_when_missing():
+    item = {
+        "source": "s",
+        "url": "https://x/p/samsung-galaxy-a55",
+        "title": "Samsung Galaxy A55 8/256",
+        "source_id": "1",
+        "price_str": "1",
+        "in_stock": True,
+        "raw_specs": {},
+        "image_urls": [],
+    }
+    NormalizePipeline().process_item(item, MagicMock(store_name="s"))
+    norm = item["_normalized"]
+    assert norm["brand"] == "Samsung"
+    assert norm["model_name"] == "A55 8/256"
+
+
+def test_normalize_pipeline_does_not_invent_brand_from_generic_title():
+    item = {
+        "source": "s",
+        "url": "https://x/p/device",
+        "title": "Device X",
+        "source_id": "1",
+        "price_str": "1",
+        "in_stock": True,
+        "raw_specs": {},
+        "image_urls": [],
+    }
+    NormalizePipeline().process_item(item, MagicMock(store_name="s"))
+    assert item["_normalized"]["brand"] is None
+
+
+def test_normalize_pipeline_does_not_infer_compatible_brand_for_accessory_title():
+    item = {
+        "source": "s",
+        "url": "https://x/p/case-for-samsung-galaxy-s24",
+        "title": "Case for Samsung Galaxy S24",
+        "source_id": "1",
+        "price_str": "1",
+        "in_stock": True,
+        "raw_specs": {},
+        "image_urls": [],
+    }
+    NormalizePipeline().process_item(item, MagicMock(store_name="s"))
+    norm = item["_normalized"]
+    assert norm["category_hint"] == "accessory"
+    assert norm["brand"] is None
+    assert norm["model_name"] is None
+
+
+def test_normalize_pipeline_infers_brand_and_model_from_explicit_raw_specs():
+    item = {
+        "source": "s",
+        "url": "https://x/p/rugged-armor",
+        "title": "Rugged Armor Case",
+        "source_id": "1",
+        "price_str": "1",
+        "in_stock": True,
+        "category_hint": "accessory",
+        "raw_specs": {
+            "Brand": "Spigen",
+            "Model": "Rugged Armor",
+            "Compatible with": "Samsung Galaxy S24",
+        },
+        "image_urls": [],
+    }
+    NormalizePipeline().process_item(item, MagicMock(store_name="s"))
+    norm = item["_normalized"]
+    assert norm["category_hint"] == "accessory"
+    assert norm["brand"] == "Spigen"
+    assert norm["model_name"] == "Rugged Armor"
+
+
+def test_normalize_pipeline_does_not_take_compatibility_model_from_raw_specs_as_accessory_model():
+    item = {
+        "source": "s",
+        "url": "https://x/p/clear-case",
+        "title": "Clear Case",
+        "source_id": "1",
+        "price_str": "1",
+        "in_stock": True,
+        "category_hint": "accessory",
+        "raw_specs": {
+            "Brand": "Spigen",
+            "Model": "Galaxy S24",
+            "Compatible with": "Samsung Galaxy S24; Galaxy S24+",
+        },
+        "image_urls": [],
+    }
+    NormalizePipeline().process_item(item, MagicMock(store_name="s"))
+    norm = item["_normalized"]
+    assert norm["brand"] == "Spigen"
+    assert norm["model_name"] != "Galaxy S24"

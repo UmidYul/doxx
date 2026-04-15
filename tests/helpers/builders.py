@@ -59,6 +59,8 @@ def build_crm_sync_item_model(**overrides: Any) -> CrmSyncItem:
         currency="UZS",
         in_stock=True,
         raw_specs={},
+        normalized_spec_labels={},
+        compatibility_targets=[],
         typed_specs={},
         normalization_warnings=[],
         spec_coverage={},

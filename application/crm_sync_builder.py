@@ -8,6 +8,8 @@ from urllib.parse import urlparse
 
 import orjson
 
+from application.extractors.spec_label_normalizer import normalize_spec_label
+from application.normalization.light_normalizer import extract_compatibility_targets
 from config.settings import settings
 from domain.crm_sync import CrmSyncItem
 from domain.parser_event import ParserEventType, ParserSyncEvent
@@ -33,6 +35,18 @@ def build_entity_key(store: str, source_id: str | None, url: str) -> str:
 
 def _normalize_title(title: str) -> str:
     return _WS_RE.sub(" ", (title or "").strip())
+
+
+def _build_normalized_spec_labels(raw_specs: dict[str, Any]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for raw_label in raw_specs.keys():
+        label = str(raw_label).strip()
+        if not label:
+            continue
+        normalized = normalize_spec_label(label)
+        if normalized:
+            out[label] = normalized
+    return out
 
 
 def build_payload_hash(
@@ -61,6 +75,15 @@ def build_payload_hash(
     ext_sorted = {k: external_ids[k] for k in sorted(external_ids.keys())}
     ts = dict(typed_specs or {})
     typed_sorted = {k: ts[k] for k in sorted(ts.keys())}
+    normalized_spec_labels = _build_normalized_spec_labels(raw_specs)
+    normalized_spec_labels_sorted = {
+        k: normalized_spec_labels[k] for k in sorted(normalized_spec_labels.keys())
+    }
+    compatibility_targets = extract_compatibility_targets(
+        title,
+        category_hint=category_hint,
+        raw_specs=raw_specs,
+    )
     nw = sorted(str(x) for x in (normalization_warnings or []) if str(x).strip())
     blob = {
         "schema_version": schema_version,
@@ -78,6 +101,8 @@ def build_payload_hash(
         "in_stock": in_stock,
         "brand": brand,
         "raw_specs": raw_specs,
+        "normalized_spec_labels": normalized_spec_labels_sorted,
+        "compatibility_targets": compatibility_targets,
         "typed_specs": typed_sorted,
         "normalization_warnings": nw,
         "description": description,
@@ -145,6 +170,12 @@ def build_crm_sync_item(normalized: dict[str, Any]) -> CrmSyncItem:
 
     raw_specs: dict[str, Any] = dict(normalized.get("raw_specs") or {})
     raw_specs.pop("_category_hint", None)
+    normalized_spec_labels = _build_normalized_spec_labels(raw_specs)
+    compatibility_targets = extract_compatibility_targets(
+        title_for_item,
+        category_hint=category_hint,
+        raw_specs=raw_specs,
+    )
 
     typed_specs: dict[str, Any] = dict(normalized.get("typed_specs") or {})
     normalization_warnings: list[str] = [
@@ -211,6 +242,8 @@ def build_crm_sync_item(normalized: dict[str, Any]) -> CrmSyncItem:
         currency=currency if isinstance(currency, str) else None,
         in_stock=in_stock if in_stock is None or isinstance(in_stock, bool) else None,
         raw_specs=raw_specs,
+        normalized_spec_labels=normalized_spec_labels,
+        compatibility_targets=compatibility_targets,
         typed_specs=typed_specs,
         normalization_warnings=normalization_warnings,
         spec_coverage=spec_coverage,

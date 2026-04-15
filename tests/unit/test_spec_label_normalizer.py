@@ -23,3 +23,9 @@ def test_normalize_spec_label_casefold_and_spaces():
     a = normalize_spec_label("  Оперативная   память  ")
     b = normalize_spec_label("оперативная память")
     assert a == b
+
+
+def test_normalize_spec_label_strips_escaped_whitespace_artifacts():
+    a = normalize_spec_label("Емкость аккумулятора\\t")
+    b = normalize_spec_label("Емкость аккумулятора")
+    assert a == b

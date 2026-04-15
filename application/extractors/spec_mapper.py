@@ -133,6 +133,219 @@ def resolve_raw_label(
     return best.canonical_label, best.typed_field
 
 
+def _resolve_rule_targets(
+    nk: str,
+    idx: dict[str, list[Any]],
+) -> list[tuple[str, int | None, bool]]:
+    if nk in _TYPED_FIELDS:
+        return [(nk, None, False)]
+
+    rules = idx.get(nk, [])
+    if not rules:
+        return []
+
+    best_by_field: dict[str, Any] = {}
+    for rule in rules:
+        best_by_field.setdefault(rule.typed_field, rule)
+
+    return [
+        (typed_field, rule.priority, bool(rule.is_deprecated))
+        for typed_field, rule in best_by_field.items()
+    ]
+
+
+def _collect_candidate_from_target(
+    *,
+    nk: str,
+    raw_key: str,
+    raw_val: str,
+    typed_field: str,
+    rule_priority: int | None,
+    deprecated_rule: bool,
+    st: str | None,
+    source_id: str | None,
+    url: str,
+    category_hint: str | None,
+    allowed: frozenset[str],
+    disables: frozenset[str],
+    field_defs: dict[str, Any],
+    warnings: list[str],
+    candidates: dict[str, list[tuple[str, str, Any, dict[str, Any]]]],
+    mapped_raw_keys: set[str],
+    deprecated_hits: list[str],
+) -> None:
+    if deprecated_rule and settings.ENABLE_DEPRECATED_ALIAS_WARNINGS:
+        deprecated_hits.append(nk)
+        warnings.append(WC.DEPRECATED_ALIAS)
+        _log_norm(
+            "SPEC_ALIAS_DEPRECATED",
+            store=st or "",
+            source_id=source_id,
+            url=url,
+            category_hint=category_hint,
+            raw_label=raw_key,
+            normalized_label=nk,
+            typed_field=typed_field,
+            alias_priority=rule_priority,
+            reason_code=WC.DEPRECATED_ALIAS,
+            warning_codes=[WC.DEPRECATED_ALIAS],
+        )
+
+    _log_norm(
+        "SPEC_ALIAS_RESOLVED",
+        store=st or "",
+        source_id=source_id,
+        url=url,
+        category_hint=category_hint,
+        raw_label=raw_key,
+        normalized_label=nk,
+        typed_field=typed_field,
+        alias_priority=rule_priority,
+    )
+
+    if typed_field in disables:
+        warnings.append(WC.FIELD_DISABLED_BY_STORE_OVERRIDE)
+        _log_norm(
+            "SPEC_FIELD_DISABLED_BY_OVERRIDE",
+            store=st or "",
+            source_id=source_id,
+            url=url,
+            category_hint=category_hint,
+            raw_label=raw_key,
+            typed_field=typed_field,
+            reason_code=WC.FIELD_DISABLED_BY_STORE_OVERRIDE,
+        )
+        return
+
+    if typed_field not in allowed:
+        warnings.append(WC.CATEGORY_MISMATCH)
+        _log_norm(
+            "NORMALIZATION_WARNING",
+            store=st or "",
+            source_id=source_id,
+            url=url,
+            category_hint=category_hint,
+            raw_field=raw_key,
+            typed_field=typed_field,
+            raw_value=raw_val,
+            reason_code=WC.CATEGORY_MISMATCH,
+            warning_codes=[WC.CATEGORY_MISMATCH],
+        )
+        return
+
+    cmeta = _candidate_meta(
+        nk=nk,
+        typed_field=typed_field,
+        rule_priority=rule_priority,
+        deprecated_rule=deprecated_rule,
+    )
+
+    if typed_field == "ram_gb":
+        nv_ram = un.normalize_field_value("ram_gb", raw_val)
+        if nv_ram is None:
+            stor = un.normalize_storage(raw_val)
+            if stor is not None and un.is_plausible_storage_gb(stor):
+                cmeta = _candidate_meta(
+                    nk=nk,
+                    typed_field="storage_gb",
+                    rule_priority=rule_priority,
+                    deprecated_rule=deprecated_rule,
+                )
+                cmeta["extra_warnings"] = [WC.RAM_STORAGE_SWAP_SUSPECTED]
+                candidates["storage_gb"].append((raw_key, raw_val, stor, cmeta))
+                warnings.append(WC.RAM_STORAGE_SWAP_SUSPECTED)
+                mapped_raw_keys.add(raw_key)
+                _log_norm(
+                    "NORMALIZATION_WARNING",
+                    store=st or "",
+                    source_id=source_id,
+                    url=url,
+                    category_hint=category_hint,
+                    raw_field=raw_key,
+                    typed_field="storage_gb",
+                    raw_value=raw_val,
+                    normalized_value=stor,
+                    reason_code=WC.RAM_STORAGE_SWAP_SUSPECTED,
+                    warning_codes=[WC.RAM_STORAGE_SWAP_SUSPECTED],
+                )
+                return
+
+    nv = un.normalize_field_value(typed_field, raw_val)
+    if nv is None:
+        if typed_field == "battery_mah" and re.search("(?:mah|\u043c\u0430\u0447)", raw_val, re.I):
+            m = re.search(r"(\d+)", raw_val)
+            if m and not un.is_plausible_battery_mah(int(m.group(1))):
+                warnings.append(WC.IMPLAUSIBLE_VALUE)
+                _log_norm(
+                    "SPEC_IMPLAUSIBLE",
+                    store=st or "",
+                    source_id=source_id,
+                    url=url,
+                    category_hint=category_hint,
+                    raw_field=raw_key,
+                    typed_field=typed_field,
+                    raw_value=raw_val,
+                    reason_code=WC.IMPLAUSIBLE_VALUE,
+                    warning_codes=[WC.IMPLAUSIBLE_VALUE],
+                )
+        if typed_field == "display_size_inch":
+            m = re.search(r"(\d+[.,]?\d*)\s*(?:inch|\"|\u2033|\u0434\u044e\u0439\u043c)", raw_val, re.I)
+            if m:
+                try:
+                    dv = float(m.group(1).replace(",", "."))
+                    if not un.is_plausible_display_size(dv):
+                        warnings.append(WC.IMPLAUSIBLE_VALUE)
+                        _log_norm(
+                            "SPEC_IMPLAUSIBLE",
+                            store=st or "",
+                            source_id=source_id,
+                            url=url,
+                            category_hint=category_hint,
+                            raw_field=raw_key,
+                            typed_field=typed_field,
+                            raw_value=raw_val,
+                            normalized_value=dv,
+                            reason_code=WC.IMPLAUSIBLE_VALUE,
+                            warning_codes=[WC.IMPLAUSIBLE_VALUE],
+                        )
+                except ValueError:
+                    pass
+        return
+
+    fd = field_defs.get(typed_field)
+    pl_name = fd.plausibility_checker if fd else None
+    if not _is_plausible_for_field(typed_field, nv, pl_name):
+        warnings.append(WC.IMPLAUSIBLE_VALUE)
+        _log_norm(
+            "SPEC_IMPLAUSIBLE",
+            store=st or "",
+            source_id=source_id,
+            url=url,
+            category_hint=category_hint,
+            raw_field=raw_key,
+            typed_field=typed_field,
+            raw_value=raw_val,
+            normalized_value=nv,
+            reason_code=WC.IMPLAUSIBLE_VALUE,
+            warning_codes=[WC.IMPLAUSIBLE_VALUE],
+        )
+        return
+
+    candidates[typed_field].append((raw_key, raw_val, nv, cmeta))
+    mapped_raw_keys.add(raw_key)
+    _log_norm(
+        "SPEC_MAPPED",
+        store=st or "",
+        source_id=source_id,
+        url=url,
+        category_hint=category_hint,
+        raw_field=raw_key,
+        typed_field=typed_field,
+        raw_value=raw_val,
+        normalized_value=nv,
+    )
+
+
 def map_raw_specs_to_typed_partial(
     raw_specs: dict[str, str],
     category_hint: str | None = None,
@@ -179,40 +392,9 @@ def map_raw_specs_to_typed_partial(
         if not str(raw_key).strip() or not str(raw_val).strip():
             continue
         nk = normalize_spec_label(raw_key)
-        typed_field: str | None = None
-        canonical: str | None = None
-        rule_priority: int | None = None
-        deprecated_rule = False
+        targets = _resolve_rule_targets(nk, idx)
 
-        if nk in _TYPED_FIELDS:
-            typed_field = nk
-            canonical = nk
-        else:
-            rules = idx.get(nk, [])
-            if rules:
-                best = rules[0]
-                typed_field = best.typed_field
-                canonical = best.canonical_label
-                rule_priority = best.priority
-                deprecated_rule = bool(best.is_deprecated)
-                if deprecated_rule and settings.ENABLE_DEPRECATED_ALIAS_WARNINGS:
-                    deprecated_hits.append(nk)
-                    warnings.append(WC.DEPRECATED_ALIAS)
-                    _log_norm(
-                        "SPEC_ALIAS_DEPRECATED",
-                        store=st or "",
-                        source_id=source_id,
-                        url=url,
-                        category_hint=category_hint,
-                        raw_label=raw_key,
-                        normalized_label=nk,
-                        typed_field=typed_field,
-                        alias_priority=rule_priority,
-                        reason_code=WC.DEPRECATED_ALIAS,
-                        warning_codes=[WC.DEPRECATED_ALIAS],
-                    )
-
-        if typed_field is None:
+        if not targets:
             unmapped_labels.append(raw_key)
             _log_norm(
                 "SPEC_LABEL_UNMAPPED",
@@ -226,159 +408,26 @@ def map_raw_specs_to_typed_partial(
             )
             continue
 
-        _log_norm(
-            "SPEC_ALIAS_RESOLVED",
-            store=st or "",
-            source_id=source_id,
-            url=url,
-            category_hint=category_hint,
-            raw_label=raw_key,
-            normalized_label=nk,
-            typed_field=typed_field,
-            alias_priority=rule_priority,
-        )
-
-        if typed_field in disables:
-            warnings.append(WC.FIELD_DISABLED_BY_STORE_OVERRIDE)
-            _log_norm(
-                "SPEC_FIELD_DISABLED_BY_OVERRIDE",
-                store=st or "",
+        for typed_field, rule_priority, deprecated_rule in targets:
+            _collect_candidate_from_target(
+                nk=nk,
+                raw_key=raw_key,
+                raw_val=raw_val,
+                typed_field=typed_field,
+                rule_priority=rule_priority,
+                deprecated_rule=deprecated_rule,
+                st=st,
                 source_id=source_id,
                 url=url,
                 category_hint=category_hint,
-                raw_label=raw_key,
-                typed_field=typed_field,
-                reason_code=WC.FIELD_DISABLED_BY_STORE_OVERRIDE,
+                allowed=allowed,
+                disables=disables,
+                field_defs=field_defs,
+                warnings=warnings,
+                candidates=candidates,
+                mapped_raw_keys=mapped_raw_keys,
+                deprecated_hits=deprecated_hits,
             )
-            continue
-
-        if typed_field not in allowed:
-            warnings.append(WC.CATEGORY_MISMATCH)
-            _log_norm(
-                "NORMALIZATION_WARNING",
-                store=st or "",
-                source_id=source_id,
-                url=url,
-                category_hint=category_hint,
-                raw_field=raw_key,
-                typed_field=typed_field,
-                raw_value=raw_val,
-                reason_code=WC.CATEGORY_MISMATCH,
-                warning_codes=[WC.CATEGORY_MISMATCH],
-            )
-            continue
-
-        cmeta = _candidate_meta(
-            nk=nk,
-            typed_field=typed_field,
-            rule_priority=rule_priority,
-            deprecated_rule=deprecated_rule,
-        )
-
-        if typed_field == "ram_gb":
-            nv_ram = un.normalize_field_value("ram_gb", raw_val)
-            if nv_ram is None:
-                stor = un.normalize_storage(raw_val)
-                if stor is not None and un.is_plausible_storage_gb(stor):
-                    cmeta = _candidate_meta(
-                        nk=nk,
-                        typed_field="storage_gb",
-                        rule_priority=rule_priority,
-                        deprecated_rule=deprecated_rule,
-                    )
-                    cmeta["extra_warnings"] = [WC.RAM_STORAGE_SWAP_SUSPECTED]
-                    candidates["storage_gb"].append((raw_key, raw_val, stor, cmeta))
-                    warnings.append(WC.RAM_STORAGE_SWAP_SUSPECTED)
-                    mapped_raw_keys.add(raw_key)
-                    _log_norm(
-                        "NORMALIZATION_WARNING",
-                        store=st or "",
-                        source_id=source_id,
-                        url=url,
-                        category_hint=category_hint,
-                        raw_field=raw_key,
-                        typed_field="storage_gb",
-                        raw_value=raw_val,
-                        normalized_value=stor,
-                        reason_code=WC.RAM_STORAGE_SWAP_SUSPECTED,
-                        warning_codes=[WC.RAM_STORAGE_SWAP_SUSPECTED],
-                    )
-                    continue
-
-        nv = un.normalize_field_value(typed_field, raw_val)
-        if nv is None:
-            if typed_field == "battery_mah" and re.search(r"mah|мач", raw_val, re.I):
-                m = re.search(r"(\d+)", raw_val)
-                if m and not un.is_plausible_battery_mah(int(m.group(1))):
-                    warnings.append(WC.IMPLAUSIBLE_VALUE)
-                    _log_norm(
-                        "SPEC_IMPLAUSIBLE",
-                        store=st or "",
-                        source_id=source_id,
-                        url=url,
-                        category_hint=category_hint,
-                        raw_field=raw_key,
-                        typed_field=typed_field,
-                        raw_value=raw_val,
-                        reason_code=WC.IMPLAUSIBLE_VALUE,
-                        warning_codes=[WC.IMPLAUSIBLE_VALUE],
-                    )
-            if typed_field == "display_size_inch":
-                m = re.search(r"(\d+[.,]?\d*)\s*(?:дюйм|inch|\"|″)", raw_val, re.I)
-                if m:
-                    try:
-                        dv = float(m.group(1).replace(",", "."))
-                        if not un.is_plausible_display_size(dv):
-                            warnings.append(WC.IMPLAUSIBLE_VALUE)
-                            _log_norm(
-                                "SPEC_IMPLAUSIBLE",
-                                store=st or "",
-                                source_id=source_id,
-                                url=url,
-                                category_hint=category_hint,
-                                raw_field=raw_key,
-                                typed_field=typed_field,
-                                raw_value=raw_val,
-                                normalized_value=dv,
-                                reason_code=WC.IMPLAUSIBLE_VALUE,
-                                warning_codes=[WC.IMPLAUSIBLE_VALUE],
-                            )
-                    except ValueError:
-                        pass
-            continue
-
-        fd = field_defs.get(typed_field)
-        pl_name = fd.plausibility_checker if fd else None
-        if not _is_plausible_for_field(typed_field, nv, pl_name):
-            warnings.append(WC.IMPLAUSIBLE_VALUE)
-            _log_norm(
-                "SPEC_IMPLAUSIBLE",
-                store=st or "",
-                source_id=source_id,
-                url=url,
-                category_hint=category_hint,
-                raw_field=raw_key,
-                typed_field=typed_field,
-                raw_value=raw_val,
-                normalized_value=nv,
-                reason_code=WC.IMPLAUSIBLE_VALUE,
-                warning_codes=[WC.IMPLAUSIBLE_VALUE],
-            )
-            continue
-
-        candidates[typed_field].append((raw_key, raw_val, nv, cmeta))
-        mapped_raw_keys.add(raw_key)
-        _log_norm(
-            "SPEC_MAPPED",
-            store=st or "",
-            source_id=source_id,
-            url=url,
-            category_hint=category_hint,
-            raw_field=raw_key,
-            typed_field=typed_field,
-            raw_value=raw_val,
-            normalized_value=nv,
-        )
 
     order = list(policy.extraction_priority_order)
     rank = {name: i for i, name in enumerate(order)}

@@ -5,6 +5,7 @@ import unicodedata
 
 _COLON_END = re.compile(r"\s*:\s*$")
 _MULTI_SPACE = re.compile(r"\s+")
+_ESCAPED_WS = re.compile(r"(?:\\[trn])+")
 _TRAIL_UNIT_JUNK = re.compile(
     r"\s*[,;]\s*(гб|gb|тб|tb|мah|mah|мач|гц|hz|кг|kg|г\b|mm|мм)\s*$",
     re.IGNORECASE,
@@ -38,6 +39,7 @@ def normalize_spec_label(label: str) -> str:
     if not label:
         return ""
     s = normalize_unicode_variants(str(label))
+    s = _ESCAPED_WS.sub(" ", s)
     s = s.replace("\t", " ").replace("\xa0", " ")
     s = re.sub(r"[^\w\s\-+/.,%°\"″'а-яa-z]", " ", s, flags=re.IGNORECASE)
     s = strip_noise_tokens(s)

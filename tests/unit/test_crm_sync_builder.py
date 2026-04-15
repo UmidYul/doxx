@@ -136,6 +136,57 @@ def test_build_crm_sync_item_includes_spec_coverage_when_present():
     assert item.spec_coverage.get("mapping_ratio") == 0.5
 
 
+def test_build_crm_sync_item_includes_normalized_spec_labels():
+    norm = {
+        "store": "s",
+        "url": "https://x",
+        "title": "T",
+        "raw_specs": {
+            "Емкость аккумулятора\\t": "5000 mAh",
+            "Стандарт Bluetooth": "5.3",
+        },
+    }
+    item = build_crm_sync_item(norm)
+    assert item.normalized_spec_labels.get("Емкость аккумулятора\\t") == "емкость аккумулятора"
+    assert item.normalized_spec_labels.get("Стандарт Bluetooth") == "стандарт bluetooth"
+
+
+def test_build_crm_sync_item_includes_compatibility_targets_for_accessory():
+    norm = {
+        "store": "s",
+        "url": "https://x",
+        "title": "Case for Samsung Galaxy S24",
+        "category_hint": "accessory",
+        "raw_specs": {},
+    }
+    item = build_crm_sync_item(norm)
+    assert item.compatibility_targets == ["Samsung Galaxy S24"]
+
+
+def test_build_crm_sync_item_compatibility_targets_empty_for_non_accessory():
+    norm = {
+        "store": "s",
+        "url": "https://x",
+        "title": "Samsung Galaxy S24",
+        "category_hint": "phone",
+        "raw_specs": {},
+    }
+    item = build_crm_sync_item(norm)
+    assert item.compatibility_targets == []
+
+
+def test_build_crm_sync_item_includes_compatibility_targets_from_raw_specs():
+    norm = {
+        "store": "s",
+        "url": "https://x",
+        "title": "Spigen Rugged Armor",
+        "category_hint": "accessory",
+        "raw_specs": {"Compatible with": "Samsung Galaxy S24, Galaxy S24+"},
+    }
+    item = build_crm_sync_item(norm)
+    assert item.compatibility_targets == ["Samsung Galaxy S24", "Galaxy S24+"]
+
+
 # ---- change_hint ----
 
 def test_change_hint_stock_update_when_out_of_stock():
@@ -177,6 +228,8 @@ def test_build_crm_sync_item_snapshot_mode():
     item = build_crm_sync_item(norm)
     assert item.sync_mode == "snapshot"
     assert item.typed_specs == {}
+    assert item.normalized_spec_labels == {}
+    assert item.compatibility_targets == []
     assert item.normalization_warnings == []
     assert item.spec_coverage == {}
     assert item.entity_key == "mediapark:42"
@@ -209,6 +262,8 @@ def test_build_crm_sync_item_uses_category_hint_field_not_raw_specs():
     item = build_crm_sync_item(norm)
     assert item.category_hint == "laptop"
     assert "_category_hint" not in item.raw_specs
+    assert "_category_hint" not in item.normalized_spec_labels
+    assert item.normalized_spec_labels.get("ram") == "ram"
 
 
 def test_build_crm_sync_item_legacy_price_float_fallback():

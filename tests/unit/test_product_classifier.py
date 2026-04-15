@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from infrastructure.spiders.product_classifier import classify_category
+from infrastructure.spiders.product_classifier import classify_category, extract_brand
 
 
 @pytest.mark.parametrize(
@@ -26,3 +26,11 @@ def test_classify_category_uses_ld_category_as_soft_signal():
 
 def test_classify_category_brand_fallback_still_works_for_model_only_title():
     assert classify_category("https://shop.uz/p/samsung-galaxy-a55", "Samsung Galaxy A55") == "phone"
+
+
+def test_extract_brand_does_not_take_compatible_device_brand_for_accessory():
+    assert extract_brand("Case for Samsung Galaxy S24") == ""
+
+
+def test_extract_brand_keeps_explicit_brand_before_compatibility_phrase():
+    assert extract_brand("Samsung Case for Galaxy S24") == "Samsung"

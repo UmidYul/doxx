@@ -11,6 +11,10 @@ import re
 
 from application.normalization.category_inference import infer_category_hint
 
+_ACCESSORY_COMPAT_PAT = re.compile(
+    r"(?i)(?<!\w)\u0434\u043b\u044f\b|\b(?:for|compatible\s+with|dlya)\b"
+)
+
 # ---------------------------------------------------------------------------
 # Brand knowledge base
 # ---------------------------------------------------------------------------
@@ -204,23 +208,12 @@ def extract_brand(title: str, ld_brand: str | None = None) -> str:
          \"Духовой шкаф Haier ...\", \"Чехол для Samsung ...\")
       3. First non-generic word in the title
     """
-    # 1. JSON-LD brand
-    if ld_brand and ld_brand.strip():
-        return ld_brand.strip()
+    known = infer_known_brand(title, ld_brand=ld_brand)
+    if known:
+        return known
 
-    all_brands = _ALL_KNOWN_BRANDS | _EXTRA_BRANDS
-    tokens = [t for t in re.split(r"[\s/\-_]+", title.strip()) if t.strip()]
-
-    # 2. Prefer a known brand token anywhere in the title (order: first hit)
-    for word in tokens:
-        lw = word.lower().strip()
-        if len(lw) < 2:
-            continue
-        if lw in all_brands:
-            # Canonical remapping (iPhone → Apple)
-            if lw == "iphone":
-                return "Apple"
-            return word.strip()
+    if _is_accessory_compatibility_title(title):
+        return ""
 
     # 3. First non-generic word from title (preserves original casing)
     for word in re.split(r"[\s/]+", title.strip()):
@@ -237,6 +230,31 @@ def extract_brand(title: str, ld_brand: str | None = None) -> str:
         return w
 
     return ""
+
+
+def infer_known_brand(title: str, ld_brand: str | None = None) -> str | None:
+    """Return a brand only when it is explicitly known.
+
+    Unlike :func:`extract_brand`, this helper never falls back to generic
+    first-word guessing. It is safe for downstream normalization layers that
+    want structured brand when present, but do not want invented brands.
+    """
+    if ld_brand and ld_brand.strip():
+        return ld_brand.strip()
+
+    all_brands = _ALL_KNOWN_BRANDS | _EXTRA_BRANDS
+    search_text = _known_brand_search_text(title)
+    tokens = [t for t in re.split(r"[\s/\-_]+", search_text.strip()) if t.strip()]
+
+    for word in tokens:
+        lw = word.lower().strip()
+        if len(lw) < 2:
+            continue
+        if lw in all_brands:
+            if lw == "iphone":
+                return "Apple"
+            return word.strip()
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -337,6 +355,19 @@ def _has_tv_signal(title_lower: str) -> bool:
     if re.search(r'\b\d{2,3}\s*(?:дюйм|inch|")', title_lower):
         return True
     return any(s in title_lower for s in _TV_SIGNALS)
+
+
+def _is_accessory_compatibility_title(title: str) -> bool:
+    return infer_category_hint("", title, {}) == "accessory" and bool(_ACCESSORY_COMPAT_PAT.search(title))
+
+
+def _known_brand_search_text(title: str) -> str:
+    if not _is_accessory_compatibility_title(title):
+        return title
+    match = _ACCESSORY_COMPAT_PAT.search(title)
+    if not match:
+        return title
+    return title[: match.start()].strip(" -–—:/,")
 
 
 def urlparse_path(url: str) -> str:
