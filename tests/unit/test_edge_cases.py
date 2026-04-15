@@ -44,6 +44,31 @@ def test_deleted_and_soft_404_product():
     assert edge_cases.EDGE_PRODUCT_SOFT_404 in edge_cases.classify_product_edge_case(item, soft)
 
 
+def test_soft_404_detection_ignores_script_noise_and_asset_uuids():
+    item = {"title": "Demo Phone", "url": "https://x/p/1", "source": "s", "source_id": "1", "price_str": "10999000"}
+    response = scrapy.http.HtmlResponse(
+        url=item["url"],
+        status=200,
+        body="""
+        <html>
+          <head>
+            <script>window.__noise = "404 not found";</script>
+          </head>
+          <body>
+            <h1>Demo Phone</h1>
+            <img src="https://cdn.example.com/demo-4045-asset.webp" />
+            <p>Valid PDP body content</p>
+          </body>
+        </html>
+        """.encode("utf-8"),
+        encoding="utf-8",
+    )
+
+    tags = edge_cases.classify_product_edge_case(item, response)
+
+    assert edge_cases.EDGE_PRODUCT_SOFT_404 not in tags
+
+
 def test_missing_price_tag_not_always_fatal_for_usable():
     item = {"title": "t", "url": "https://x", "source": "s", "source_id": "1", "price_str": ""}
     ok = scrapy.http.HtmlResponse(url=item["url"], status=200, body=b"<html>ok</html>")

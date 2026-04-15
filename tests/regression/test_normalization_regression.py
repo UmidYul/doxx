@@ -13,7 +13,7 @@ FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "regression" / "no
 
 @pytest.mark.parametrize(
     "name",
-    ["phone", "laptop", "tv", "appliance"],
+    ["phone", "laptop", "tv", "appliance", "accessory"],
 )
 def test_normalization_regression_fixture_mapping(name: str):
     path = FIXTURES / f"{name}.json"
@@ -22,6 +22,7 @@ def test_normalization_regression_fixture_mapping(name: str):
     NormalizePipeline().process_item(item, MagicMock(store_name=item.get("source", "mediapark")))
     n = item.get("_normalized")
     assert n is not None, name
+    assert n["category_hint"] == spec.get("expected_category_hint", spec["category"])
     assert "raw_specs" in n and isinstance(n["raw_specs"], dict)
     assert "typed_specs" in n and isinstance(n["typed_specs"], dict)
     assert "normalization_warnings" in n

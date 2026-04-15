@@ -1,0 +1,20 @@
+{
+  "category": "accessory",
+  "expected_category_hint": "accessory",
+  "raw_item": {
+    "source": "mediapark",
+    "url": "https://mediapark.uz/p/reg-accessory-1",
+    "title": "Case for Samsung Galaxy S24",
+    "source_id": "reg-accessory-1",
+    "price_str": "250000 сум",
+    "in_stock": true,
+    "brand": "Samsung",
+    "category_hint": "phone",
+    "raw_specs": {
+      "Материал": "Силикон"
+    },
+    "image_urls": []
+  },
+  "min_mapping_ratio": 0.0,
+  "expect_typed_keys": []
+}

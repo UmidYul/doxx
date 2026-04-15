@@ -55,10 +55,10 @@
     "exchange_name": "moscraper.events",
     "queue_name": "scraper.products.v1",
     "routing_key": "listing.scraped.v1",
-    "outbox_status": "publishing",
+    "outbox_status": "published",
     "attempt_number": 1,
     "publisher_service": "publisher-service",
     "outbox_created_at": "2026-04-03T12:00:16Z",
-    "published_at": null
+    "published_at": "2026-04-03T12:00:17Z"
   }
 }

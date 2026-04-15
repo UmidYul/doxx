@@ -1,6 +1,6 @@
-# Local stack: scraper + publisher + RabbitMQ with shared scraper DB volume.
+# Local active contour: scraper -> scraper DB -> outbox -> publisher -> RabbitMQ -> CRM queue.
 # Usage: docker compose up --build
-# UI: http://localhost:15672 (guest/guest)
+# RabbitMQ UI: http://127.0.0.1:15672 (credentials from .env: RABBITMQ_ADMIN_USER / RABBITMQ_ADMIN_PASS)
 
 services:
   rabbitmq:
@@ -8,11 +8,15 @@ services:
     container_name: moscraper-rabbitmq
     hostname: rabbitmq
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "${RABBITMQ_AMQP_BIND_HOST:-0.0.0.0}:5672:5672"
+      - "${RABBITMQ_MANAGEMENT_BIND_HOST:-127.0.0.1}:15672:15672"
     environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_ADMIN_USER:-moscraper_admin}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_ADMIN_PASS:-change-me-admin-pass}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-moscraper}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+      - ./infra/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
@@ -21,26 +25,61 @@ services:
       retries: 6
       start_period: 25s
 
+  rabbitmq-bootstrap:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: moscraper-rabbitmq-bootstrap
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      RABBITMQ_MANAGEMENT_URL: http://rabbitmq:15672
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-moscraper}
+      RABBITMQ_ADMIN_USER: ${RABBITMQ_ADMIN_USER:-moscraper_admin}
+      RABBITMQ_ADMIN_PASS: ${RABBITMQ_ADMIN_PASS:-change-me-admin-pass}
+      RABBITMQ_PUBLISHER_USER: ${RABBITMQ_PUBLISHER_USER:-moscraper_publisher}
+      RABBITMQ_PUBLISHER_PASS: ${RABBITMQ_PUBLISHER_PASS:-change-me-publisher-pass}
+      RABBITMQ_CRM_USER: ${RABBITMQ_CRM_USER:-moscraper_crm}
+      RABBITMQ_CRM_PASS: ${RABBITMQ_CRM_PASS:-change-me-crm-pass}
+      RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-moscraper.events}
+      RABBITMQ_EXCHANGE_TYPE: ${RABBITMQ_EXCHANGE_TYPE:-topic}
+      RABBITMQ_QUEUE: ${RABBITMQ_QUEUE:-scraper.products.v1}
+      RABBITMQ_CRM_QUEUE: ${RABBITMQ_CRM_QUEUE:-crm.products.import.v1}
+      RABBITMQ_RETRY_EXCHANGE: ${RABBITMQ_RETRY_EXCHANGE:-crm.products.retry}
+      RABBITMQ_REQUEUE_EXCHANGE: ${RABBITMQ_REQUEUE_EXCHANGE:-crm.products.requeue}
+      RABBITMQ_DLX_EXCHANGE: ${RABBITMQ_DLX_EXCHANGE:-crm.products.dlx}
+      RABBITMQ_ROUTING_KEY: ${RABBITMQ_ROUTING_KEY:-listing.scraped.v1}
+      RABBITMQ_RETRY_30S_MS: ${RABBITMQ_RETRY_30S_MS:-30000}
+      RABBITMQ_RETRY_5M_MS: ${RABBITMQ_RETRY_5M_MS:-300000}
+      RABBITMQ_RETRY_30M_MS: ${RABBITMQ_RETRY_30M_MS:-1800000}
+      RABBITMQ_BOOTSTRAP_RECREATE_MISMATCHED_QUEUES: ${RABBITMQ_BOOTSTRAP_RECREATE_MISMATCHED_QUEUES:-false}
+    command: ["python", "-m", "scripts.bootstrap_rabbitmq"]
+    restart: "no"
+
   scraper:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: moscraper-scraper
     depends_on:
-      rabbitmq:
-        condition: service_healthy
+      rabbitmq-bootstrap:
+        condition: service_completed_successfully
     environment:
       BROKER_TYPE: rabbitmq
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
-      RABBITMQ_EXCHANGE: moscraper.events
-      RABBITMQ_EXCHANGE_TYPE: topic
-      RABBITMQ_QUEUE: scraper.products.v1
-      RABBITMQ_ROUTING_KEY: listing.scraped.v1
+      RABBITMQ_URL: ${RABBITMQ_DOCKER_URL:-amqp://moscraper_publisher:change-me-publisher-pass@rabbitmq:5672/moscraper}
+      RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-moscraper.events}
+      RABBITMQ_EXCHANGE_TYPE: ${RABBITMQ_EXCHANGE_TYPE:-topic}
+      RABBITMQ_QUEUE: ${RABBITMQ_QUEUE:-scraper.products.v1}
+      RABBITMQ_CRM_QUEUE: ${RABBITMQ_CRM_QUEUE:-crm.products.import.v1}
+      RABBITMQ_ROUTING_KEY: ${RABBITMQ_ROUTING_KEY:-listing.scraped.v1}
       RABBITMQ_PUBLISH_MANDATORY: "true"
+      RABBITMQ_DECLARE_TOPOLOGY: "false"
+      RABBITMQ_HEARTBEAT_SECONDS: ${RABBITMQ_HEARTBEAT_SECONDS:-30}
+      RABBITMQ_CONNECTION_NAME: scraper-runtime
       SCRAPER_DB_PATH: /data/scraper/scraper.db
     volumes:
       - scraper-data:/data/scraper
-    # Override spider: docker compose run scraper scrapy crawl uzum
     command: ["scrapy", "crawl", "mediapark"]
 
   publisher:
@@ -49,15 +88,19 @@ services:
       dockerfile: Dockerfile
     container_name: moscraper-publisher
     depends_on:
-      rabbitmq:
-        condition: service_healthy
+      rabbitmq-bootstrap:
+        condition: service_completed_successfully
     environment:
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
-      RABBITMQ_EXCHANGE: moscraper.events
-      RABBITMQ_EXCHANGE_TYPE: topic
-      RABBITMQ_QUEUE: scraper.products.v1
-      RABBITMQ_ROUTING_KEY: listing.scraped.v1
+      RABBITMQ_URL: ${RABBITMQ_DOCKER_URL:-amqp://moscraper_publisher:change-me-publisher-pass@rabbitmq:5672/moscraper}
+      RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-moscraper.events}
+      RABBITMQ_EXCHANGE_TYPE: ${RABBITMQ_EXCHANGE_TYPE:-topic}
+      RABBITMQ_QUEUE: ${RABBITMQ_QUEUE:-scraper.products.v1}
+      RABBITMQ_CRM_QUEUE: ${RABBITMQ_CRM_QUEUE:-crm.products.import.v1}
+      RABBITMQ_ROUTING_KEY: ${RABBITMQ_ROUTING_KEY:-listing.scraped.v1}
       RABBITMQ_PUBLISH_MANDATORY: "true"
+      RABBITMQ_DECLARE_TOPOLOGY: "false"
+      RABBITMQ_HEARTBEAT_SECONDS: ${RABBITMQ_HEARTBEAT_SECONDS:-30}
+      RABBITMQ_CONNECTION_NAME: ${RABBITMQ_CONNECTION_NAME:-publisher-service}
       SCRAPER_DB_PATH: /data/scraper/scraper.db
       PUBLISHER_POLL_INTERVAL_SECONDS: "2.0"
     volumes:
@@ -65,4 +108,5 @@ services:
     command: ["python", "-m", "services.publisher.main"]
 
 volumes:
+  rabbitmq-data:
   scraper-data:

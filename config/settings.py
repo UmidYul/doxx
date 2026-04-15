@@ -2,8 +2,26 @@ from __future__ import annotations
 
 """Runtime configuration for the active scraper/publisher contour plus legacy migration knobs."""
 
+from urllib.parse import quote, urlsplit, urlunsplit
+
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _replace_rabbitmq_url_credentials(url: str, *, username: str, password: str) -> str:
+    parts = urlsplit(url)
+    hostname = parts.hostname
+    if not hostname:
+        return url
+    if ":" in hostname and not hostname.startswith("["):
+        hostname = f"[{hostname}]"
+    if parts.port is not None:
+        hostname = f"{hostname}:{parts.port}"
+    userinfo = quote(username, safe="")
+    if password:
+        userinfo = f"{userinfo}:{quote(password, safe='')}"
+    netloc = f"{userinfo}@{hostname}"
+    return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
 
 
 class Settings(BaseSettings):
@@ -80,14 +98,39 @@ class Settings(BaseSettings):
     PARSER_INCLUDE_IDEMPOTENCY_KEY_IN_PAYLOAD: bool = True
     CRM_SEND_IDEMPOTENCY_KEY_HEADER: bool = True
 
-    # --- Legacy in-process RabbitMQ transport (replaced by standalone publisher service) ---
+    # --- Active RabbitMQ broker / publisher contour ---
     BROKER_TYPE: str = "rabbitmq"
-    RABBITMQ_URL: str = "amqp://guest:guest@localhost:5672/"
+    RABBITMQ_VHOST: str = "moscraper"
+    RABBITMQ_ADMIN_USER: str = "moscraper_admin"
+    RABBITMQ_ADMIN_PASS: str = "change-me-admin-pass"
+    RABBITMQ_PUBLISHER_USER: str = "moscraper_publisher"
+    RABBITMQ_PUBLISHER_PASS: str = "change-me-publisher-pass"
+    RABBITMQ_CRM_USER: str = "moscraper_crm"
+    RABBITMQ_CRM_PASS: str = "change-me-crm-pass"
+    RABBITMQ_URL: str = "amqp://moscraper_publisher:change-me-publisher-pass@localhost:5672/moscraper"
+    RABBITMQ_CRM_URL: str = ""
+    RABBITMQ_MANAGEMENT_URL: str = "http://127.0.0.1:15672"
     RABBITMQ_EXCHANGE: str = "moscraper.events"
     RABBITMQ_EXCHANGE_TYPE: str = "topic"
     RABBITMQ_QUEUE: str = "scraper.products.v1"
+    RABBITMQ_CRM_QUEUE: str = "crm.products.import.v1"
+    RABBITMQ_RETRY_EXCHANGE: str = "crm.products.retry"
+    RABBITMQ_REQUEUE_EXCHANGE: str = "crm.products.requeue"
+    RABBITMQ_DLX_EXCHANGE: str = "crm.products.dlx"
     RABBITMQ_ROUTING_KEY: str = "listing.scraped.v1"
     RABBITMQ_PUBLISH_MANDATORY: bool = True
+    RABBITMQ_DECLARE_TOPOLOGY: bool = False
+    RABBITMQ_HEARTBEAT_SECONDS: int = Field(default=30, ge=1, le=3600)
+    RABBITMQ_CONNECTION_NAME: str = "publisher-service"
+    RABBITMQ_RETRY_30S_MS: int = Field(default=30_000, ge=1_000, le=3_600_000)
+    RABBITMQ_RETRY_5M_MS: int = Field(default=300_000, ge=1_000, le=7_200_000)
+    RABBITMQ_RETRY_30M_MS: int = Field(default=1_800_000, ge=1_000, le=21_600_000)
+    RABBITMQ_BOOTSTRAP_RECREATE_MISMATCHED_QUEUES: bool = False
+    RABBITMQ_BOOTSTRAP_MANAGE_VHOST: bool = True
+    RABBITMQ_BOOTSTRAP_MANAGE_USERS: bool = True
+    RABBITMQ_BOOTSTRAP_MANAGE_PERMISSIONS: bool = True
+    RABBITMQ_MANAGEMENT_BIND_HOST: str = "127.0.0.1"
+    RABBITMQ_AMQP_BIND_HOST: str = "0.0.0.0"
     MAX_PUBLISH_RETRIES: int = Field(default=0, ge=0)
 
     # --- Scraper DB / outbox / publisher ---
@@ -113,6 +156,7 @@ class Settings(BaseSettings):
     SCRAPY_LOG_LEVEL: str = "INFO"
     SCRAPY_CONCURRENT_REQUESTS: int = 8
     SCRAPY_DOWNLOAD_DELAY: float = 1.5
+    SCRAPY_HEADER_PROFILE_ROTATION_ENABLED: bool = False
 
     # --- Crawl framework / pagination safety (2A) ---
     SCRAPY_MAX_PAGES_PER_CATEGORY: int = Field(default=200, ge=1)
@@ -126,6 +170,33 @@ class Settings(BaseSettings):
     SCRAPY_ACCESS_SHELL_ESCALATE_AFTER: int = Field(default=2, ge=1)
     SCRAPY_BROWSER_FALLBACK_FAILURE_THRESHOLD: int = Field(default=2, ge=1)
     SCRAPY_PROXY_FALLBACK_FAILURE_THRESHOLD: int = Field(default=1, ge=1)
+    SCRAPY_PROXY_POLICY_HARDENING_ENABLED: bool = False
+    SCRAPY_PROXY_POLICY_DEFAULT_MODE: str = "rotating"
+    SCRAPY_PROXY_STICKY_REQUESTS_DEFAULT: int = Field(default=20, ge=1, le=1000)
+    SCRAPY_PROXY_COOLDOWN_SECONDS_DEFAULT: int = Field(default=300, ge=1, le=86_400)
+    SCRAPY_PROXY_BAN_SCORE_THRESHOLD: int = Field(default=3, ge=1, le=100)
+    SCRAPY_PROXY_MAX_CONSECUTIVE_FAILURES: int = Field(default=2, ge=1, le=100)
+    SCRAPY_CAPTCHA_HOOKS_ENABLED: bool = False
+    SCRAPY_CAPTCHA_SOLVER_BACKEND: str = "noop"
+    SCRAPY_CAPTCHA_MAX_SOLVE_ATTEMPTS: int = Field(default=1, ge=1, le=20)
+    SCRAPY_CAPTCHA_SUSPICIOUS_REDIRECT_ENABLED: bool = True
+    SCRAPY_HONEYPOT_FILTER_ENABLED: bool = False
+    SCRAPY_HONEYPOT_FILTER_MAX_FILTER_RATIO: float = Field(default=0.8, ge=0.0, le=1.0)
+    SCRAPY_BAN_SIGNAL_MONITORING_ENABLED: bool = False
+    SCRAPY_BAN_SPIKE_WINDOW_SECONDS: float = Field(default=120.0, ge=1.0, le=3600.0)
+    SCRAPY_BAN_SPIKE_THRESHOLD: int = Field(default=5, ge=1, le=1000)
+    SCRAPY_RANDOMIZED_DELAY_ENABLED: bool = False
+    SCRAPY_RANDOMIZED_DELAY_MIN_SECONDS: float = Field(default=0.05, ge=0.0, le=5.0)
+    SCRAPY_RANDOMIZED_DELAY_MAX_SECONDS: float = Field(default=0.35, ge=0.0, le=5.0)
+    SCRAPY_EXPLICIT_BACKOFF_ENABLED: bool = False
+    SCRAPY_EXPLICIT_BACKOFF_ENFORCE: bool = False
+    SCRAPY_EXPLICIT_BACKOFF_ENFORCE_STORES: list[str] = Field(default_factory=list)
+    SCRAPY_RATE_LIMIT_HEADER_INTELLIGENCE_ENABLED: bool = True
+    SCRAPY_BACKOFF_BASE_SECONDS: float = Field(default=1.0, ge=0.0, le=60.0)
+    SCRAPY_BACKOFF_MAX_SECONDS: float = Field(default=90.0, ge=0.0, le=3600.0)
+    SCRAPY_BACKOFF_COOLDOWN_MAX_SECONDS: float = Field(default=300.0, ge=0.0, le=86_400.0)
+    SCRAPY_BACKOFF_RESPECT_RETRY_AFTER: bool = True
+    SCRAPY_BACKOFF_429_STRICT: bool = True
 
     STORE_NAMES: list[str] = Field(default_factory=lambda: ["mediapark", "texnomart", "uzum", "alifshop"])
 
@@ -172,6 +243,7 @@ class Settings(BaseSettings):
     SLO_MAX_REJECTED_ITEM_RATE: float = Field(default=0.15, ge=0.0, le=1.0)
     SLO_MAX_RETRYABLE_FAILURE_RATE: float = Field(default=0.10, ge=0.0, le=1.0)
     SLO_MAX_MALFORMED_RESPONSE_RATE: float = Field(default=0.05, ge=0.0, le=1.0)
+
     SLO_MAX_UNRESOLVED_RECONCILIATION_RATE: float = Field(default=0.05, ge=0.0, le=1.0)
     SLO_MAX_DUPLICATE_PAYLOAD_SKIP_RATE: float = Field(default=0.50, ge=0.0, le=1.0)
     SLO_MIN_ITEMS_PER_ACTIVE_STORE: int = Field(default=20, ge=0, le=1_000_000)
@@ -326,6 +398,7 @@ class Settings(BaseSettings):
     GLOBAL_MAX_PROXY_REQUESTS: int = Field(default=8, ge=0, le=256)
     GLOBAL_MAX_RETRYABLE_QUEUE: int = Field(default=200, ge=0, le=50_000)
     GLOBAL_MAX_MEMORY_MB: int = Field(default=512, ge=1, le=65_536)
+    SCRAPY_RESOURCE_GOV_BYPASS_STORES: list[str] = Field(default_factory=list)
     BACKPRESSURE_MEMORY_WARNING_MB: int = Field(default=384, ge=1, le=65_536)
     BACKPRESSURE_MEMORY_CRITICAL_MB: int = Field(default=512, ge=1, le=65_536)
     BACKPRESSURE_RETRYABLE_QUEUE_WARNING: int = Field(default=100, ge=0, le=50_000)
@@ -387,6 +460,15 @@ class Settings(BaseSettings):
     STABILIZATION_MAX_BLOCK_PAGE_RATE: float = Field(default=0.10, ge=0.0, le=1.0)
     STABILIZATION_MAX_MALFORMED_RESPONSE_RATE: float = Field(default=0.05, ge=0.0, le=1.0)
     STABILIZATION_MAX_UNRESOLVED_RECONCILIATION_RATE: float = Field(default=0.05, ge=0.0, le=1.0)
+
+    def resolved_rabbitmq_crm_url(self) -> str:
+        if self.RABBITMQ_CRM_URL:
+            return self.RABBITMQ_CRM_URL
+        return _replace_rabbitmq_url_credentials(
+            self.RABBITMQ_URL,
+            username=self.RABBITMQ_CRM_USER,
+            password=self.RABBITMQ_CRM_PASS,
+        )
 
 
 settings = Settings()

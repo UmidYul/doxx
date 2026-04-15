@@ -15,6 +15,14 @@ def test_registry_has_required_groups():
         "replay_reconciliation",
         "browser_escalation_policy",
         "store_profile_runtime_control",
+        "access_delay_jitter",
+        "header_profile_rotation",
+        "proxy_policy_hardening",
+        "captcha_hooks",
+        "honeypot_link_filter",
+        "ban_signal_monitoring",
+        "explicit_backoff_engine",
+        "explicit_backoff_enforcement",
     ):
         assert name in FEATURE_FLAG_REGISTRY
         assert get_feature_spec(name) is not None

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import re
 
+from application.normalization.category_inference import infer_category_hint
+
 # ---------------------------------------------------------------------------
 # Brand knowledge base
 # ---------------------------------------------------------------------------
@@ -159,40 +161,15 @@ def classify_category(
     Returns one of: phone, laptop, tv, tablet, monitor, appliance, accessory,
     gaming, unknown.
 
-    Priority: URL slug > JSON-LD category > title keywords > brand heuristic.
+    Priority: shared deterministic inference > brand heuristic fallback.
     """
-    u = url.lower()
+    inferred = infer_category_hint(url, title, {}, spider_hint=ld_category)
+    if inferred != "unknown":
+        return inferred
+
     t = title.lower().strip()
 
-    # 0. Title-based overrides: certain product types listed on wrong category pages
-    if any(kw in t for kw in _NOT_SMARTPHONE_TITLE_KW):
-        for keywords, cat in _TITLE_MAP:
-            if any(kw in t for kw in keywords):
-                return cat
-        return "accessory"
-
-    # 1. URL slug — most reliable because set by the store's taxonomy
-    for keywords, cat in _URL_MAP:
-        if any(kw in u for kw in keywords):
-            return cat
-
-    # 2. JSON-LD / breadcrumb category field passed in from the page
-    if ld_category:
-        lc = ld_category.lower()
-        for keywords, cat in _TITLE_MAP:  # reuse same keyword sets
-            if any(kw in lc for kw in keywords):
-                return cat
-        # Also try URL map keywords against the LD category string
-        for keywords, cat in _URL_MAP:
-            if any(kw in lc for kw in keywords):
-                return cat
-
-    # 3. Title keyword matching
-    for keywords, cat in _TITLE_MAP:
-        if any(kw in t for kw in keywords):
-            return cat
-
-    # 4. Brand-based heuristic (first meaningful word in title)
+    # Brand-based heuristic stays as a last resort for model-only titles.
     first = _first_word(title)
     if first:
         if first in _PHONE_BRANDS:

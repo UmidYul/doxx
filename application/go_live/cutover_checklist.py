@@ -5,6 +5,13 @@ from domain.go_live import CutoverChecklistItem
 from domain.implementation_roadmap import ImplementationRoadmap
 from domain.production_readiness import ProductionReadinessReport
 
+from application.release.antiban_rollout import (
+    anti_ban_feature_flags_registered,
+    build_antiban_rollback_actions,
+    build_antiban_rollout_strategy,
+    is_antiban_runtime_enabled,
+)
+
 
 def build_cutover_checklist(
     readiness_report: ProductionReadinessReport,
@@ -40,6 +47,22 @@ def build_cutover_checklist(
         blocker_codes = set(roadmap.go_live_blockers or [])
         if roadmap.critical_path and any(c in blocker_codes for c in roadmap.critical_path[:3]):
             roadmap_ok = not _b("roadmap_blockers_waived", False)
+
+    anti_ban_enabled = is_antiban_runtime_enabled()
+    flags_ok, missing_flags = anti_ban_feature_flags_registered()
+    anti_ban_strategy = build_antiban_rollout_strategy(store_names=enabled)
+    anti_ban_stages = [str(s.get("name")) for s in list(anti_ban_strategy.get("stages") or [])]
+    anti_ban_pilot = str(anti_ban_strategy.get("pilot_store") or "")
+    anti_ban_rollout_ready = (
+        _b("antiban_rollout_plan_reviewed", not anti_ban_enabled)
+        and _b("antiban_local_validated", not anti_ban_enabled)
+        and _b("antiban_staging_validated", not anti_ban_enabled)
+    )
+    anti_ban_progression_ready = (
+        _b("antiban_pilot_store_validated", False) and _b("antiban_ten_percent_validated", False)
+    )
+    anti_ban_rollback_ready = _b("antiban_rollback_drill_done", not anti_ban_enabled)
+    anti_ban_rollback_steps = build_antiban_rollback_actions()
 
     items: list[CutoverChecklistItem] = [
         CutoverChecklistItem(
@@ -132,6 +155,49 @@ def build_cutover_checklist(
             blocking=False,
             owner_role="engineering_lead",
             notes=[],
+        )
+    )
+    items.append(
+        CutoverChecklistItem(
+            item_code="cutover.antiban_feature_flags_registered",
+            title="Anti-ban features are registry-gated with explicit feature flags",
+            completed=flags_ok,
+            blocking=anti_ban_enabled,
+            owner_role="release_owner",
+            notes=[f"missing_flags={missing_flags}"] if not flags_ok else [],
+        )
+    )
+    items.append(
+        CutoverChecklistItem(
+            item_code="cutover.antiban_rollout_preflight",
+            title="Anti-ban rollout preflight complete (local + staging + reviewed staged plan)",
+            completed=anti_ban_rollout_ready,
+            blocking=anti_ban_enabled,
+            owner_role="release_owner",
+            notes=[
+                f"pilot_store={anti_ban_pilot}",
+                f"stages={anti_ban_stages}",
+            ],
+        )
+    )
+    items.append(
+        CutoverChecklistItem(
+            item_code="cutover.antiban_rollback_drill",
+            title="Anti-ban rollback drill verified before production expansion",
+            completed=anti_ban_rollback_ready,
+            blocking=anti_ban_enabled,
+            owner_role="release_owner",
+            notes=anti_ban_rollback_steps[:3],
+        )
+    )
+    items.append(
+        CutoverChecklistItem(
+            item_code="cutover.antiban_progression_ready",
+            title="Anti-ban progression evidence captured (1 store pilot and 10% stores)",
+            completed=anti_ban_progression_ready,
+            blocking=False,
+            owner_role="release_owner",
+            notes=[] if anti_ban_progression_ready else ["pilot_1_store_and_10_percent_pending"],
         )
     )
 

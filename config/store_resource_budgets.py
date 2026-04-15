@@ -59,15 +59,30 @@ def _uzum() -> StoreResourceBudget:
 def _texnomart() -> StoreResourceBudget:
     return StoreResourceBudget(
         store_name="texnomart",
-        max_concurrent_requests=12,
-        max_listing_requests=7,
-        max_product_requests=8,
+        max_concurrent_requests=20,
+        max_listing_requests=4,
+        max_product_requests=16,
         max_batch_inflight=3,
         max_retryable_queue=140,
-        max_browser_pages=3,
-        max_proxy_requests=6,
+        max_browser_pages=2,
+        max_proxy_requests=4,
         max_memory_mb=448,
-        notes=["html_first_with_browser_fallback"],
+        notes=["sitemap_seeded_http_first", "higher_plain_product_budget"],
+    )
+
+
+def _alifshop() -> StoreResourceBudget:
+    return StoreResourceBudget(
+        store_name="alifshop",
+        max_concurrent_requests=24,
+        max_listing_requests=12,
+        max_product_requests=20,
+        max_batch_inflight=2,
+        max_retryable_queue=120,
+        max_browser_pages=0,
+        max_proxy_requests=4,
+        max_memory_mb=384,
+        notes=["catalog_heavy_http_only", "higher_listing_fanout_budget"],
     )
 
 
@@ -79,6 +94,7 @@ def _load() -> None:
         "mediapark": _mediapark(),
         "uzum": _uzum(),
         "texnomart": _texnomart(),
+        "alifshop": _alifshop(),
     }
 
 

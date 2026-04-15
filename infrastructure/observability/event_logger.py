@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from typing import cast
 
 from domain.observability import BatchTraceRecord
@@ -21,6 +22,8 @@ from infrastructure.observability.trace_collector import record_trace, trim_buff
 from infrastructure.security.redaction import redact_mapping_for_logs
 
 logger = logging.getLogger("moscraper.observability.sync")
+publisher_logger = logging.getLogger("moscraper.publisher")
+_TRIM_GUARD = threading.local()
 
 
 def log_perf_event(
@@ -228,6 +231,54 @@ def log_developer_experience_event(
     }
     line = json.dumps(payload, default=str, ensure_ascii=False)
     logging.getLogger("moscraper.dx").info("dx_event %s", line)
+    bump_counter_for_message_code(message_code)
+
+
+def log_publisher_event(
+    message_code: str,
+    *,
+    publisher_service: str | None = None,
+    exchange_name: str | None = None,
+    queue_name: str | None = None,
+    routing_key: str | None = None,
+    event_id: str | None = None,
+    store_name: str | None = None,
+    scrape_run_id: str | None = None,
+    claimed: int | None = None,
+    published: int | None = None,
+    failed: int | None = None,
+    severity: str | None = None,
+    details: dict[str, object] | None = None,
+) -> None:
+    """Structured publisher-service events for RabbitMQ delivery diagnostics."""
+    if not getattr(settings, "ENABLE_STRUCTURED_SYNC_LOGS", True):
+        return
+    det = dict(details or {})
+    if getattr(settings, "ENABLE_SECRET_REDACTION", True):
+        det = dict(redact_mapping_for_logs(det))
+    payload: dict[str, object] = {
+        "observability": "parser_publisher_v1",
+        "message_code": message_code,
+        "publisher_service": publisher_service,
+        "exchange_name": exchange_name,
+        "queue_name": queue_name,
+        "routing_key": routing_key,
+        "event_id": event_id,
+        "store_name": store_name,
+        "scrape_run_id": scrape_run_id,
+        "claimed": claimed,
+        "published": published,
+        "failed": failed,
+        "severity": severity,
+        "details": det,
+    }
+    line = json.dumps(payload, default=str, ensure_ascii=False)
+    level = logging.INFO
+    if severity == "warning":
+        level = logging.WARNING
+    elif severity in ("error", "critical"):
+        level = logging.ERROR
+    publisher_logger.log(level, "publisher_event %s", line)
     bump_counter_for_message_code(message_code)
 
 
@@ -450,7 +501,12 @@ def log_sync_event(
             record_trace(rec)
 
         bump_counter_for_message_code(message_code)
-        trim_buffers_if_needed()
+        if not bool(getattr(_TRIM_GUARD, "active", False)):
+            _TRIM_GUARD.active = True
+            try:
+                trim_buffers_if_needed()
+            finally:
+                _TRIM_GUARD.active = False
 
     if (
         getattr(settings, "ENABLE_PERFORMANCE_PROFILING", True)

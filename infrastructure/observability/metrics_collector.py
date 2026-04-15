@@ -23,6 +23,13 @@ RECONCILIATION_RESOLVED_TOTAL = "reconciliation_resolved_total"
 RECONCILIATION_FAILED_TOTAL = "reconciliation_failed_total"
 DUPLICATE_PAYLOAD_SKIPPED_TOTAL = "duplicate_payload_skipped_total"
 BLOCK_PAGES_TOTAL = "block_pages_total"
+PUBLISHER_CONNECT_FAILURES_TOTAL = "publisher_connect_failures_total"
+PUBLISHER_PUBLISH_RETRIES_TOTAL = "publisher_publish_retries_total"
+PUBLISHER_MESSAGE_FAILURES_TOTAL = "publisher_message_failures_total"
+PUBLISHER_BATCHES_TOTAL = "publisher_batches_total"
+PUBLISHER_RUN_FAILURES_TOTAL = "publisher_run_failures_total"
+PUBLISHER_SMOKE_RUNS_TOTAL = "publisher_smoke_runs_total"
+PUBLISHER_SMOKE_FAILURES_TOTAL = "publisher_smoke_failures_total"
 
 _ALL_KEYS: tuple[str, ...] = (
     CRAWL_LISTING_PAGES_TOTAL,
@@ -44,6 +51,13 @@ _ALL_KEYS: tuple[str, ...] = (
     RECONCILIATION_FAILED_TOTAL,
     DUPLICATE_PAYLOAD_SKIPPED_TOTAL,
     BLOCK_PAGES_TOTAL,
+    PUBLISHER_CONNECT_FAILURES_TOTAL,
+    PUBLISHER_PUBLISH_RETRIES_TOTAL,
+    PUBLISHER_MESSAGE_FAILURES_TOTAL,
+    PUBLISHER_BATCHES_TOTAL,
+    PUBLISHER_RUN_FAILURES_TOTAL,
+    PUBLISHER_SMOKE_RUNS_TOTAL,
+    PUBLISHER_SMOKE_FAILURES_TOTAL,
 )
 
 
@@ -138,6 +152,20 @@ def bump_counter_for_message_code(code: str) -> None:
             m.inc(DUPLICATE_PAYLOAD_SKIPPED_TOTAL)
         case mc.HEALTH_STATUS_CHANGED:
             pass
+        case mc.PUBLISHER_CONNECT_FAILED:
+            m.inc(PUBLISHER_CONNECT_FAILURES_TOTAL)
+        case mc.PUBLISHER_PUBLISH_RETRY:
+            m.inc(PUBLISHER_PUBLISH_RETRIES_TOTAL)
+        case mc.PUBLISHER_MESSAGE_FAILED:
+            m.inc(PUBLISHER_MESSAGE_FAILURES_TOTAL)
+        case mc.PUBLISHER_BATCH_COMPLETED:
+            m.inc(PUBLISHER_BATCHES_TOTAL)
+        case mc.PUBLISHER_RUN_FAILED:
+            m.inc(PUBLISHER_RUN_FAILURES_TOTAL)
+        case mc.PUBLISHER_SMOKE_COMPLETED:
+            m.inc(PUBLISHER_SMOKE_RUNS_TOTAL)
+        case mc.PUBLISHER_SMOKE_FAILED:
+            m.inc(PUBLISHER_SMOKE_FAILURES_TOTAL)
         case _:
             pass
 

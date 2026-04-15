@@ -15,6 +15,9 @@ COPY application ./application
 COPY config ./config
 COPY domain ./domain
 COPY infrastructure ./infrastructure
+COPY services ./services
+COPY shared ./shared
+COPY scripts ./scripts
 
 RUN pip install .
 

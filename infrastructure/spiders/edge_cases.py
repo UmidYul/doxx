@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import re
 from typing import Any
 
@@ -40,13 +41,27 @@ EDGE_CATEGORY_MISCLASSIFIED = "category_misclassified"
 EDGE_CANONICAL_MISMATCH = "canonical_mismatch"
 
 _SOFT_404_PAT = re.compile(
-    r"товар\s+не\s+найден|страница\s+не\s+найдена|404|not\s+found|product\s+unavailable",
+    r"\b404\s+not\s+found\b|"
+    r"\u0442\u043e\u0432\u0430\u0440\s+\u043d\u0435\s+\u043d\u0430\u0439\u0434\u0435\u043d|"
+    r"\u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0430\s+\u043d\u0435\s+\u043d\u0430\u0439\u0434\u0435\u043d\u0430|"
+    r"page\s+not\s+found|product\s+unavailable",
     re.I,
 )
 _VARIANT_PAT = re.compile(
-    r"\b(variant|вариант|цвет|memory|gb\/|\/\d+gb)\b",
+    r"\b(variant|\u0432\u0430\u0440\u0438\u0430\u043d\u0442|\u0446\u0432\u0435\u0442|memory|gb\/|\/\d+gb)\b",
     re.I,
 )
+
+
+def _visible_page_text(response: scrapy.http.Response, *, limit: int = 12_000) -> str:
+    """Return normalized visible HTML text without script/style noise."""
+    raw = response.text or ""
+    raw = re.sub(r"<script\b[^>]*>.*?</script>", " ", raw, flags=re.I | re.S)
+    raw = re.sub(r"<style\b[^>]*>.*?</style>", " ", raw, flags=re.I | re.S)
+    raw = re.sub(r"<noscript\b[^>]*>.*?</noscript>", " ", raw, flags=re.I | re.S)
+    raw = re.sub(r"<[^>]+>", " ", raw)
+    raw = html.unescape(raw)
+    return re.sub(r"\s+", " ", raw).strip()[:limit]
 
 
 def classify_listing_edge_case(
@@ -88,10 +103,11 @@ def classify_product_edge_case(
     expected_category_hints: frozenset[str] | None = None,
 ) -> list[str]:
     tags: list[str] = []
+    visible_text = _visible_page_text(response)
 
     if response.status == 404:
         tags.append(EDGE_DELETED_PRODUCT_404)
-    elif response.status == 200 and _SOFT_404_PAT.search(response.text[:8000] or ""):
+    elif response.status == 200 and _SOFT_404_PAT.search(visible_text):
         tags.append(EDGE_PRODUCT_SOFT_404)
 
     title = str(item.get("title") or item.get("name") or "").strip()
@@ -118,7 +134,7 @@ def classify_product_edge_case(
         tags.append(EDGE_OUT_OF_STOCK_WITH_PRICE)
 
     ps = str(item.get("price_str") or item.get("price_raw") or "")
-    if "было" in ps.lower() or "was" in ps.lower():
+    if "\u0431\u044b\u043b\u043e" in ps.lower() or "was" in ps.lower():
         if re.search(r"\d", ps):
             tags.append(EDGE_OLD_PRICE_ONLY)
 
@@ -132,7 +148,7 @@ def classify_product_edge_case(
     rec_missing = missing_recommended_fields(item)
     if "brand" in rec_missing:
         ch = str(item.get("category_hint") or item.get("category") or "").lower()
-        if "accessory" in ch or "аксессуар" in title.lower():
+        if "accessory" in ch or "\u0430\u043a\u0441\u0435\u0441\u0441\u0443\u0430\u0440" in title.lower():
             tags.append(EDGE_ACCESSORY_MISCLASSIFIED)
 
     if expected_category_hints is not None:

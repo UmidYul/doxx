@@ -88,7 +88,6 @@ CATEGORY_ALIAS_RULES: tuple[SpecAliasRule, ...] = (
     _ar("dual sim", "sim_count"),
     _ar("nano-sim", "sim_count"),
     # Connectivity
-    _ar("nfc", "has_bluetooth"),  # NFC presence often in bluetooth-like field
     _ar("wi-fi", "has_wifi"),
     _ar("bluetooth", "has_bluetooth"),
     _ar("стандарт wi-fi", "has_wifi"),

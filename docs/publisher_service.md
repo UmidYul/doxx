@@ -19,7 +19,7 @@ The scraper does not publish from spider code.
 - [outbox_reader.py](/C:/Users/Lenovo/Desktop/doxx/services/publisher/outbox_reader.py)
   Claims outbox rows and marks them `published`, `retryable`, or `failed`.
 - [rabbit_publisher.py](/C:/Users/Lenovo/Desktop/doxx/services/publisher/rabbit_publisher.py)
-  Declares RabbitMQ topology and publishes persistent messages.
+  Connects with publisher confirms and publishes persistent messages. In the hardened stack it does not declare topology.
 - [publication_worker.py](/C:/Users/Lenovo/Desktop/doxx/services/publisher/publication_worker.py)
   Batch worker that connects outbox claiming, Rabbit publish, retry logic, and attempt logging.
 
@@ -30,7 +30,7 @@ Compatibility wrappers remain in `application/publisher/*`, but the active servi
 1. `PublicationWorker` asks `SQLiteOutboxReader` for a claimed batch of rows with status `pending` or `retryable`.
 2. Claiming sets outbox state to `publishing` with a lease.
 3. Each claimed row is converted to the RabbitMQ event contract.
-4. `RabbitMQPublisher` ensures the durable exchange and queue exist and binds the queue to the routing key.
+4. `RabbitMQPublisher` opens a robust RabbitMQ connection with heartbeat + connection name and gets the pre-created exchange.
 5. The message is published with persistent delivery mode.
 6. On success:
    - `publication_outbox.status = published`
@@ -63,9 +63,10 @@ Topology:
 
 - exchange: `RABBITMQ_EXCHANGE`
 - queue: `RABBITMQ_QUEUE`
+- CRM queue: `RABBITMQ_CRM_QUEUE`
 - routing key: `RABBITMQ_ROUTING_KEY`
-- exchange durable: `true`
-- queue durable: `true`
+- topology bootstrap: `python -m scripts.bootstrap_rabbitmq`
+- publisher runtime declare mode: `RABBITMQ_DECLARE_TOPOLOGY=false`
 - message delivery mode: `persistent`
 
 ## Retry and Failure Discipline
@@ -91,3 +92,30 @@ Topology:
 - attempt history is queryable
 - replay can happen from DB without re-scraping the store
 - scraper responsibility cleanly ends at RabbitMQ instead of leaking transport logic into spiders
+
+## Observability
+
+The publisher now emits structured `publisher_event` records for the highest-value
+operational transitions instead of relying only on plain logger strings.
+
+Primary signals:
+
+- `PUBLISHER_CONNECT_FAILED`
+- `PUBLISHER_PUBLISH_RETRY`
+- `PUBLISHER_MESSAGE_FAILED`
+- `PUBLISHER_BATCH_COMPLETED`
+- `PUBLISHER_RUN_FAILED`
+- `PUBLISHER_SMOKE_COMPLETED`
+- `PUBLISHER_SMOKE_FAILED`
+
+These events are wired into in-process observability counters, which makes local
+smoke checks and broker triage easier to interpret.
+
+## Recommended operator checks
+
+1. Bootstrap topology when the environment is fresh:
+   - `python -m scripts.bootstrap_rabbitmq`
+2. Validate publish, retry lane, and DLQ wiring:
+   - `python -m scripts.rabbit_smoke`
+3. Run one publisher batch against the current scraper DB:
+   - `python -m services.publisher.main --once`

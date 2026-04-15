@@ -4,6 +4,7 @@ from pathlib import Path
 
 import orjson
 
+from domain.scrape_fingerprints import build_product_identity_key
 from domain.scraped_product import ScrapedProductSnapshot
 from infrastructure.persistence.sqlite_store import SQLiteScraperStore
 
@@ -157,6 +158,89 @@ def test_duplicate_same_source_id_updates_existing_row_and_replaces_children(tmp
     assert payload["structured_payload"]["price_raw"] == "1200000"
 
 
+def test_missing_source_id_uses_canonical_url_identity_and_stable_event_id(tmp_path: Path) -> None:
+    store, run_id = _store(tmp_path)
+
+    first = store.persist_snapshot(
+        ScrapedProductSnapshot.from_scrapy_item(
+            {
+                "source": "mediapark",
+                "url": "https://Mediapark.uz/products/view/demo-phone/?utm=ad",
+                "title": "Demo Phone",
+                "price_str": "1000000",
+                "in_stock": True,
+                "raw_specs": {"Color": "Black"},
+                "image_urls": ["https://mediapark.uz/img/demo.jpg"],
+            },
+            scrape_run_id=run_id,
+        ),
+        event_type="scraper.product.scraped.v1",
+        exchange_name="moscraper.events",
+        routing_key="listing.scraped.v1",
+    )
+    second = store.persist_snapshot(
+        ScrapedProductSnapshot.from_scrapy_item(
+            {
+                "source": "mediapark",
+                "url": "https://mediapark.uz/products/view/demo-phone/",
+                "title": "Demo Phone",
+                "price_str": "1000000",
+                "in_stock": True,
+                "raw_specs": {"Color": "Blue"},
+                "image_urls": ["https://mediapark.uz/img/demo.jpg"],
+            },
+            scrape_run_id=run_id,
+        ),
+        event_type="scraper.product.scraped.v1",
+        exchange_name="moscraper.events",
+        routing_key="listing.scraped.v1",
+    )
+
+    assert first.raw_product_id == second.raw_product_id
+    assert first.event_id == second.event_id
+
+    expected_identity = build_product_identity_key(
+        "mediapark",
+        None,
+        "https://mediapark.uz/products/view/demo-phone/",
+    )
+    product_row = store.get_snapshot_row(scrape_run_id=run_id, identity_key=expected_identity)
+    assert product_row is not None
+    assert product_row["source_id"] is None
+    assert product_row["source_url"] == "https://mediapark.uz/products/view/demo-phone/"
+
+
+def test_raw_specs_lists_and_nested_values_round_trip_in_payload_and_specs(tmp_path: Path) -> None:
+    store, run_id = _store(tmp_path)
+    persisted = store.persist_snapshot(
+        _snapshot(
+            run_id,
+            raw_specs={
+                "Комплектация": ["Box", "Cable"],
+                "Display": {
+                    "Modes": ["60 Hz", "120 Hz"],
+                    "Resolution": "2400x1080",
+                },
+            },
+        ),
+        event_type="scraper.product.scraped.v1",
+        exchange_name="moscraper.events",
+        routing_key="listing.scraped.v1",
+    )
+
+    outbox_row = store.get_outbox_row(persisted.event_id)
+    assert outbox_row is not None
+    payload = orjson.loads(str(outbox_row["payload_json"]))
+    assert payload["structured_payload"]["raw_specs"]["Комплектация"] == ["Box", "Cable"]
+    assert payload["structured_payload"]["raw_specs"]["Display"]["Modes"] == ["60 Hz", "120 Hz"]
+
+    specs = store.get_raw_product_specs(persisted.raw_product_id)
+    spec_pairs = {(row["source_section"], row["spec_name"], row["spec_value"]) for row in specs}
+    assert (None, "Комплектация", '["Box","Cable"]') in spec_pairs
+    assert ("Display", "Modes", '["60 Hz","120 Hz"]') in spec_pairs
+    assert ("Display", "Resolution", "2400x1080") in spec_pairs
+
+
 def test_mark_outbox_failed_sets_retryable_status_and_attempt_history(tmp_path: Path) -> None:
     store, run_id = _store(tmp_path)
     persisted = store.persist_snapshot(
@@ -192,3 +276,20 @@ def test_mark_outbox_failed_sets_retryable_status_and_attempt_history(tmp_path: 
     assert len(attempts) == 1
     assert attempts[0]["success"] == 0
     assert attempts[0]["error_message"] == "temporary network issue"
+
+
+def test_has_claimable_outbox_rows_respects_pending_and_leased_state(tmp_path: Path) -> None:
+    store, run_id = _store(tmp_path)
+    persisted = store.persist_snapshot(
+        _snapshot(run_id),
+        event_type="scraper.product.scraped.v1",
+        exchange_name="moscraper.events",
+        routing_key="listing.scraped.v1",
+    )
+
+    assert store.has_claimable_outbox_rows() is True
+
+    claimed = store.claim_outbox_batch(batch_size=10, publisher_id="publisher", lease_seconds=30)
+    assert len(claimed) == 1
+    assert claimed[0].event_id == persisted.event_id
+    assert store.has_claimable_outbox_rows() is False

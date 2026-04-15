@@ -43,6 +43,11 @@ def test_settings_instantiates_with_env_example_pairs(monkeypatch: pytest.Monkey
     s = Settings(_env_file=None)
     assert s.RABBITMQ_EXCHANGE == "moscraper.events"
     assert s.BROKER_TYPE == "rabbitmq"
+    assert s.RABBITMQ_VHOST == "moscraper"
+    assert s.RABBITMQ_DECLARE_TOPOLOGY is False
+    assert s.RABBITMQ_BOOTSTRAP_MANAGE_VHOST is True
+    assert s.RABBITMQ_BOOTSTRAP_MANAGE_USERS is True
+    assert s.RABBITMQ_BOOTSTRAP_MANAGE_PERMISSIONS is True
     assert s.MAX_PUBLISH_RETRIES == 0
     assert s.TRANSPORT_TYPE == "disabled"
     assert s.CRM_SYNC_ENDPOINT == "/api/parser/sync"
@@ -64,3 +69,26 @@ def test_transport_type_field_exists():
     assert "TRANSPORT_TYPE" in fields
     assert "CRM_BASE_URL" in fields
     assert "CRM_PARSER_KEY" in fields
+
+
+def test_resolved_rabbitmq_crm_url_defaults_to_runtime_host_with_crm_credentials():
+    settings = Settings(
+        _env_file=None,
+        RABBITMQ_URL="amqps://moscraper_publisher:pub-pass@toad.rmq.cloudamqp.com/vhost-name",
+        RABBITMQ_CRM_USER="moscraper_crm",
+        RABBITMQ_CRM_PASS="crm-pass",
+    )
+
+    assert settings.resolved_rabbitmq_crm_url() == "amqps://moscraper_crm:crm-pass@toad.rmq.cloudamqp.com/vhost-name"
+
+
+def test_resolved_rabbitmq_crm_url_prefers_explicit_value():
+    settings = Settings(
+        _env_file=None,
+        RABBITMQ_URL="amqps://moscraper_publisher:pub-pass@toad.rmq.cloudamqp.com/vhost-name",
+        RABBITMQ_CRM_URL="amqps://shared-user:shared-pass@toad.rmq.cloudamqp.com/vhost-name",
+        RABBITMQ_CRM_USER="ignored-user",
+        RABBITMQ_CRM_PASS="ignored-pass",
+    )
+
+    assert settings.resolved_rabbitmq_crm_url() == "amqps://shared-user:shared-pass@toad.rmq.cloudamqp.com/vhost-name"

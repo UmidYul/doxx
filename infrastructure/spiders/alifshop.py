@@ -37,13 +37,28 @@ _ALIFSHOP_LOW_VALUE_CATEGORY_HINTS = (
     "/ru/categories/zaryadnie-ustroystva",
 )
 _ALIFSHOP_TECH_CATEGORY_HINTS = (
+    "/ru/categories/audiotehnika",
     "/ru/categories/ekshen-kameri",
+    "/ru/categories/fotoapparati",
+    "/ru/categories/holodiljniki",
     "/ru/categories/fitnes-brasleti",
+    "/ru/categories/mikrovolnovie-pechi",
+    "/ru/categories/naushniki",
+    "/ru/categories/noutbuki",
+    "/ru/categories/tehnika-dlya-doma",
+    "/ru/categories/tehnika-dlya-igr",
+    "/ru/categories/tehnika-dlya-kuhni",
+    "/ru/categories/televizori",
+    "/ru/categories/tv-i-proektori",
     "/ru/categories/ochki-virtualjnoy-realjnosti",
+    "/ru/categories/stiraljnie-mashini",
     "/ru/categories/smart-chasi",
     "/ru/categories/smartfoni-",
+    "/ru/categories/umniy-dom",
+    "/ru/categories/umnie-kolonki",
     "/ru/categories/umnie-koljca",
     "/ru/categories/umnie-ochki",
+    "/ru/categories/vse-noutbuki",
 )
 
 
@@ -62,20 +77,43 @@ class AlifshopSpider(BaseProductSpider):
     }
 
     def start_category_urls(self) -> tuple[str, ...]:
-        return (
+        seeds = (
+            "https://alifshop.uz/ru",
             "https://alifshop.uz/ru/categories/smartfoni-apple",
             "https://alifshop.uz/ru/categories/smartfoni-samsung",
             "https://alifshop.uz/ru/categories/smartfoni-xiaomi",
             "https://alifshop.uz/ru/categories/smartfoni-honor",
             "https://alifshop.uz/ru/categories/smartfoni-tecno",
             "https://alifshop.uz/ru/categories/smartfoni-vivo",
+            "https://alifshop.uz/ru/categories/noutbuki-i-kompjyuteri",
+            "https://alifshop.uz/ru/categories/vse-noutbuki",
+            "https://alifshop.uz/ru/categories/televizori-i-proektori",
+            "https://alifshop.uz/ru/categories/tv-i-proektori",
+            "https://alifshop.uz/ru/categories/tehnika-dlya-igr",
+            "https://alifshop.uz/ru/categories/tehnika-dlya-kuhni",
+            "https://alifshop.uz/ru/categories/tehnika-dlya-doma",
+            "https://alifshop.uz/ru/categories/holodiljniki-i-moroziljnie-kameri",
+            "https://alifshop.uz/ru/categories/stiraljnie-mashini",
+            "https://alifshop.uz/ru/categories/mikrovolnovie-pechi",
+            "https://alifshop.uz/ru/categories/audiotehnika",
             "https://alifshop.uz/ru/categories/smart-chasi",
             "https://alifshop.uz/ru/categories/fitnes-brasleti",
             "https://alifshop.uz/ru/categories/umnie-ochki",
             "https://alifshop.uz/ru/categories/umnie-koljca",
+            "https://alifshop.uz/ru/categories/umnie-kolonki",
+            "https://alifshop.uz/ru/categories/umniy-dom",
             "https://alifshop.uz/ru/categories/ekshen-kameri",
             "https://alifshop.uz/ru/categories/ochki-virtualjnoy-realjnosti",
         )
+        seen: set[str] = set()
+        out: list[str] = []
+        for url in seeds:
+            normalized = url.strip().rstrip("/")
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            out.append(normalized)
+        return tuple(out)
 
     def is_product_page(self, response: scrapy.http.Response) -> bool:
         return bool(_PRODUCT_PATH_RE.search(urlparse(response.url).path))

@@ -32,6 +32,18 @@ def test_normalize_price_value_zero():
     assert normalize_price_value("0") is None
 
 
+def test_normalize_price_value_rejects_installment_text():
+    assert normalize_price_value("\u043e\u0442 100 000 \u0441\u0443\u043c/\u043c\u0435\u0441") is None
+
+
+def test_normalize_price_value_rejects_range_text():
+    assert normalize_price_value("100 000 - 120 000 \u0441\u0443\u043c") is None
+
+
+def test_normalize_price_value_rejects_old_and_new_price_text():
+    assert normalize_price_value("\u0431\u044b\u043b\u043e 200 000, \u0441\u0442\u0430\u043b\u043e 150 000 \u0441\u0443\u043c") is None
+
+
 def test_normalize_stock_false_string():
     assert normalize_stock_value("false") is False
 
@@ -90,11 +102,51 @@ def test_tablet_not_classified_as_phone():
     ) == "tablet"
 
 
+@pytest.mark.parametrize(
+    ("url", "title"),
+    [
+        ("https://shop.uz/p/chehol-dlya-iphone-15", "Чехол для iPhone 15 Pro Max"),
+        ("https://shop.uz/p/iphone-15-case", "Case for Samsung Galaxy S24"),
+        ("https://shop.uz/p/charger-iphone-15", "Зарядка для iPhone 15"),
+        ("https://shop.uz/p/steklo-iphone-15", "Защитное стекло для iPhone 15"),
+        ("https://shop.uz/p/plenka-samsung-galaxy-s24", "Пленка для Samsung Galaxy S24"),
+        ("https://shop.uz/p/apple-watch-series-9", "Apple Watch Series 9"),
+    ],
+)
+def test_accessory_signals_override_phone_spider_hint(url: str, title: str):
+    assert derive_category_hint(url, title, {}, spider_hint=None) == "accessory"
+    assert derive_category_hint(url, title, {}, spider_hint="phone") == "accessory"
+
+
+def test_accessory_raw_specs_override_phone_spider_hint():
+    assert (
+        derive_category_hint(
+            "https://shop.uz/p/demo-item",
+            "Apple Series 9",
+            {"Тип устройства": "smart watch"},
+            spider_hint="phone",
+        )
+        == "accessory"
+    )
+
+
 def test_extract_model_name_strips_brand_and_noise():
     m = extract_model_name("Samsung Galaxy S24 Ultra 256GB", brand="Samsung", category_hint="phone")
     assert m is not None
     assert "S24" in m or "Ultra" in m
     assert "Samsung" not in m
+
+
+def test_extract_model_name_returns_none_for_accessory_compatibility_title():
+    assert extract_model_name("Чехол для iPhone 15 Pro Max", brand="Apple", category_hint="accessory") is None
+
+
+def test_extract_model_name_keeps_watch_model_for_accessory():
+    assert extract_model_name("Apple Watch Series 9", brand="Apple", category_hint="accessory") == "Watch Series 9"
+
+
+def test_extract_model_name_keeps_headphone_model_for_accessory():
+    assert extract_model_name("Sony WH-1000XM5", brand="Sony", category_hint="accessory") == "WH-1000XM5"
 
 
 def test_normalize_image_urls_dedup_and_order():
@@ -121,3 +173,15 @@ def test_sanitize_raw_specs_truncates_long_value():
     long_val = "x" * 600
     out = sanitize_raw_specs({"k": long_val})
     assert len(out["k"]) == 500
+
+
+def test_normalize_stock_v_nalichii():
+    assert normalize_stock_value("в наличии") is True
+
+
+def test_normalize_stock_net_v_nalichii():
+    assert normalize_stock_value("нет в наличии") is False
+
+
+def test_normalize_stock_ambiguous_phrase_is_unknown():
+    assert normalize_stock_value("уточняйте наличие") is None

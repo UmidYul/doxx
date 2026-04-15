@@ -13,6 +13,18 @@ from domain.scrape_fingerprints import (
     normalize_json_dict,
     normalize_text,
 )
+from domain.stock_normalization import normalize_stock_signal
+
+
+def _coerce_snapshot_stock(raw: object) -> bool | None:
+    normalized = normalize_stock_signal(raw)
+    if normalized is not None:
+        return normalized
+    if raw is None:
+        return None
+    if isinstance(raw, str) and not raw.strip():
+        return None
+    return bool(raw)
 
 
 class ScrapedProductSnapshot(BaseModel):
@@ -57,6 +69,7 @@ class ScrapedProductSnapshot(BaseModel):
         external_ids = normalize_external_ids(item.get("external_ids") if isinstance(item.get("external_ids"), dict) else {})
         if source_id and store_name and store_name not in external_ids:
             external_ids[store_name] = source_id
+        in_stock = _coerce_snapshot_stock(item.get("in_stock"))
 
         identity_key = build_product_identity_key(store_name, source_id, source_url)
         payload_hash = build_scraped_payload_hash(
@@ -66,7 +79,7 @@ class ScrapedProductSnapshot(BaseModel):
             title=title,
             brand=brand,
             price_raw=price_raw,
-            in_stock=bool(item.get("in_stock")) if item.get("in_stock") is not None else None,
+            in_stock=in_stock,
             raw_specs=raw_specs,
             image_urls=image_urls,
             description=description,
@@ -89,7 +102,7 @@ class ScrapedProductSnapshot(BaseModel):
             title=title,
             brand=brand,
             price_raw=price_raw,
-            in_stock=bool(item.get("in_stock")) if item.get("in_stock") is not None else None,
+            in_stock=in_stock,
             raw_specs=raw_specs,
             image_urls=image_urls,
             description=description,

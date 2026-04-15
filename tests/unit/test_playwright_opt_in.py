@@ -32,6 +32,104 @@ def test_uzum_registers_playwright_handlers_only_on_spider():
     assert handlers["https"].endswith("ScrapyPlaywrightDownloadHandler")
 
 
+def test_texnomart_browser_listing_request_injects_snapshot_anchors(monkeypatch: pytest.MonkeyPatch):
+    from infrastructure.spiders.texnomart import TexnomartSpider
+    from config.settings import settings
+
+    spider = TexnomartSpider()
+    monkeypatch.setattr(settings, "ENABLE_RESOURCE_GOVERNANCE", False)
+
+    class _S:
+        def get(self, key, default=None):
+            if key == "DOWNLOAD_HANDLERS":
+                return TexnomartSpider.custom_settings.get("DOWNLOAD_HANDLERS")
+            return default
+
+    spider.settings = _S()
+    req = spider.schedule_safe_request(
+        "https://texnomart.uz/ru/katalog/smartfony/",
+        callback=spider.parse,
+        purpose="listing",
+        meta={"force_browser": True},
+    )
+    assert req is not None
+    methods = req.meta["playwright_page_methods"]
+    evaluate_args = [m.args[0] for m in methods if getattr(m, "method", "") == "evaluate"]
+
+    assert req.meta.get("playwright") is True
+    assert any("__scrapy_snapshot__" in arg for arg in evaluate_args)
+
+
+def test_texnomart_default_discovery_mode_is_sitemap():
+    from infrastructure.spiders.texnomart import TexnomartSpider
+
+    spider = TexnomartSpider()
+    assert spider._discovery_mode() == "sitemap"
+
+
+def test_texnomart_start_requests_seed_sitemap(monkeypatch: pytest.MonkeyPatch):
+    from infrastructure.spiders.texnomart import TexnomartSpider
+    from config.settings import settings
+
+    spider = TexnomartSpider()
+    monkeypatch.setattr(settings, "ENABLE_RESOURCE_GOVERNANCE", False)
+
+    class _S:
+        def get(self, key, default=None):
+            if key == "DOWNLOAD_HANDLERS":
+                return TexnomartSpider.custom_settings.get("DOWNLOAD_HANDLERS")
+            return default
+
+    spider.settings = _S()
+    reqs = list(spider.start_requests())
+    assert reqs
+    assert reqs[0].url == spider.product_sitemap_url
+    assert reqs[0].callback == spider.parse_product_sitemap
+    assert reqs[0].meta.get("playwright") is None
+
+
+def test_texnomart_product_requests_stay_plain_http_by_default():
+    from infrastructure.spiders.texnomart import TexnomartSpider
+
+    spider = TexnomartSpider()
+
+    class _S:
+        def get(self, key, default=None):
+            if key == "DOWNLOAD_HANDLERS":
+                return TexnomartSpider.custom_settings.get("DOWNLOAD_HANDLERS")
+            return default
+
+    spider.settings = _S()
+    listing = scrapy.http.HtmlResponse(
+        url="https://texnomart.uz/ru/katalog/smartfony/",
+        request=scrapy.Request("https://texnomart.uz/ru/katalog/smartfony/"),
+        body=b"<html></html>",
+    )
+    req = spider.schedule_product_request(
+        "https://texnomart.uz/ru/product/detail/123456/",
+        response=listing,
+        meta={
+            "category_url": listing.url,
+            "page": 1,
+            "force_browser": True,
+            "playwright": True,
+            "playwright_page_methods": ["should be stripped"],
+        },
+    )
+    assert req is not None
+    assert req.meta.get("playwright") is None
+    assert req.meta.get("access_mode_selected") == "plain"
+    assert req.meta.get("force_browser") is None
+    assert req.priority == 20
+
+
+def test_uzum_default_discovery_mode_is_hybrid():
+    from infrastructure.spiders.uzum import UzumSpider
+
+    spider = UzumSpider()
+    assert spider._discovery_mode() == "hybrid"
+
+
 def test_uzum_start_request_uses_playwright_meta(monkeypatch: pytest.MonkeyPatch):
     from infrastructure.spiders.uzum import UzumSpider
     from config.settings import settings

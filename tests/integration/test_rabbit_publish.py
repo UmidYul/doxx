@@ -22,7 +22,17 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _rabbit_url() -> str:
-    return os.environ.get("MOSCRAPER_INTEGRATION_RABBITMQ_URL", "amqp://guest:guest@127.0.0.1:5672/")
+    return os.environ.get(
+        "MOSCRAPER_INTEGRATION_RABBITMQ_ADMIN_URL",
+        "amqp://moscraper_admin:moscraper_admin_2026_secure@127.0.0.1:5672/moscraper",
+    )
+
+
+def _publisher_url() -> str:
+    return os.environ.get(
+        "MOSCRAPER_INTEGRATION_RABBITMQ_PUBLISHER_URL",
+        "amqp://moscraper_publisher:moscraper_publisher_2026_secure@127.0.0.1:5672/moscraper",
+    )
 
 
 def _pika_connect_params():
@@ -58,11 +68,12 @@ def test_mediapark_crawl_outbox_then_publish_to_bound_queue(tmp_path: Path) -> N
         setup.close()
 
     env = os.environ.copy()
-    env["RABBITMQ_URL"] = url
+    env["RABBITMQ_URL"] = _publisher_url()
     env["RABBITMQ_EXCHANGE"] = exchange
     env["RABBITMQ_EXCHANGE_TYPE"] = "topic"
     env["RABBITMQ_ROUTING_KEY"] = routing_key
     env["RABBITMQ_PUBLISH_MANDATORY"] = "true"
+    env["RABBITMQ_DECLARE_TOPOLOGY"] = "false"
     env["SCRAPER_DB_PATH"] = str(db_path)
 
     crawl = subprocess.run(

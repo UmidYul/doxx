@@ -76,7 +76,12 @@ class MobileRedirectMiddleware:
             )
             new_request = request.copy()
             referer = request.meta.get("from_listing") or request.meta.get("access_referer")
-            headers = build_desktop_headers(store, purpose, referer=referer)
+            headers = build_desktop_headers(
+                store,
+                purpose,
+                referer=referer,
+                request_url=new_request.url,
+            )
             for k, v in headers.items():
                 new_request.headers[k] = v
             new_request.meta["_mobile_retry"] = True

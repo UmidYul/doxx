@@ -12,7 +12,8 @@ The scraper owns extraction quality, minimal structuring, and durable persistenc
 
 - Create a venv and install `pip install -e ".[dev]"`.
 - Copy [`.env.example`](../.env.example) to `.env`.
-- Set `SCRAPER_DB_PATH`, `RABBITMQ_URL`, `RABBITMQ_EXCHANGE`, `RABBITMQ_QUEUE`, and `RABBITMQ_ROUTING_KEY`.
+- Set `SCRAPER_DB_PATH`, `RABBITMQ_URL`, `RABBITMQ_ADMIN_USER`, `RABBITMQ_ADMIN_PASS`, `RABBITMQ_PUBLISHER_USER`, `RABBITMQ_PUBLISHER_PASS`, `RABBITMQ_CRM_USER`, and `RABBITMQ_CRM_PASS`.
+- Run `python -m scripts.bootstrap_rabbitmq` before the first publisher or CRM smoke run.
 - Keep `TRANSPORT_TYPE=disabled` unless you are explicitly working on legacy CRM-only modules.
 
 ## One store / one spider

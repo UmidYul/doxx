@@ -266,6 +266,9 @@ class MediaparkSpider(BaseProductSpider):
         }
 
     def parse_product_sitemap_index(self, response: scrapy.http.Response):
+        from infrastructure.access.resource_governance import release_request_governance_counters
+
+        release_request_governance_counters(dict(response.meta or {}), self.store_name or self.name)
         detailed_sitemaps: list[str] = []
         seen: set[str] = set()
         for sitemap_url in self._extract_sitemap_locs(response.text):
@@ -306,6 +309,9 @@ class MediaparkSpider(BaseProductSpider):
             yield req
 
     def parse_product_sitemap_leaf(self, response: scrapy.http.Response):
+        from infrastructure.access.resource_governance import release_request_governance_counters
+
+        release_request_governance_counters(dict(response.meta or {}), self.store_name or self.name)
         reg = self.crawl_registry
         category_url = str(response.meta.get("category_url") or response.url)
         detailed_sitemaps = list(response.meta.get("sitemap_detailed_urls") or [response.url])
@@ -562,7 +568,11 @@ class MediaparkSpider(BaseProductSpider):
                 target_url=url,
             ),
         }
-        headers = build_desktop_headers(self.store_name or self.name, "product")
+        headers = build_desktop_headers(
+            self.store_name or self.name,
+            "product",
+            request_url=url,
+        )
         return scrapy.Request(
             url,
             callback=self.parse_product_sitemap_leaf,

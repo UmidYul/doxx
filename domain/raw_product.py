@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool, StrictFloat, StrictInt, StrictStr
+
+RawStockSignal = StrictBool | StrictInt | StrictFloat | StrictStr | None
 
 
 class RawProduct(BaseModel):
@@ -13,7 +15,7 @@ class RawProduct(BaseModel):
     source_id: str
     title: str
     price_str: str
-    in_stock: bool = True
+    in_stock: RawStockSignal = True
     brand: str | None = None
     raw_specs: dict = Field(default_factory=dict)
     image_urls: list[str] = Field(default_factory=list)
@@ -46,7 +48,7 @@ def as_scrapy_item_dict(extracted: dict[str, Any]) -> dict[str, Any]:
         source_id=source_id,
         title=str(extracted.get("title") or extracted.get("name") or ""),
         price_str=str(extracted.get("price_str") or ""),
-        in_stock=bool(extracted.get("in_stock", True)),
+        in_stock=extracted.get("in_stock", True),
         brand=brand,
         raw_specs=raw_specs,
         image_urls=[str(u).strip() for u in (extracted.get("image_urls") or []) if u],

@@ -6,29 +6,28 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 COMPOSE = REPO_ROOT / "docker-compose.yml"
 
 
-def test_docker_compose_has_rabbitmq_scraper_and_publisher():
+def test_docker_compose_has_rabbitmq_bootstrap_scraper_and_publisher():
     text = COMPOSE.read_text(encoding="utf-8")
     assert "  rabbitmq:" in text
+    assert "  rabbitmq-bootstrap:" in text
     assert "  scraper:" in text
     assert "  publisher:" in text
     for other in ("  postgres:", "  redis:", "  adminer:", "  mysql:", "  mongo:"):
         assert other not in text.lower()
 
 
-def test_rabbitmq_image_and_ports():
+def test_rabbitmq_ports_are_split_between_lan_amqp_and_local_management():
     text = COMPOSE.read_text(encoding="utf-8")
     assert "rabbitmq:3-management" in text
-    assert "5672:5672" in text
-    assert "15672:15672" in text
+    assert "${RABBITMQ_AMQP_BIND_HOST:-0.0.0.0}:5672:5672" in text
+    assert "${RABBITMQ_MANAGEMENT_BIND_HOST:-127.0.0.1}:15672:15672" in text
 
 
-def test_scraper_build_and_service_commands():
+def test_scraper_and_publisher_wait_for_bootstrap_and_disable_runtime_topology_declare():
     text = COMPOSE.read_text(encoding="utf-8")
-    assert "dockerfile: Dockerfile" in text.replace(" ", "") or "Dockerfile" in text
-    assert "context: ." in text or "context:." in text.replace(" ", "")
-    assert "RABBITMQ_URL:" in text
-    assert "RABBITMQ_EXCHANGE:" in text
-    assert "RABBITMQ_QUEUE:" in text
-    assert "scrapy" in text and "crawl" in text
+    assert 'condition: service_completed_successfully' in text
+    assert 'command: ["python", "-m", "scripts.bootstrap_rabbitmq"]' in text
+    assert 'RABBITMQ_DECLARE_TOPOLOGY: "false"' in text
+    assert "RABBITMQ_CRM_QUEUE:" in text
     assert "services.publisher.main" in text
     assert "SCRAPER_DB_PATH:" in text

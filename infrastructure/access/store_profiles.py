@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 AccessMode = Literal["http_only", "http_with_proxy", "browser_required", "browser_fallback"]
+ProxyMode = Literal["rotating", "sticky"]
 
 _COMMON_BAN_SIGNALS: list[str] = [
     "captcha",
@@ -33,6 +34,20 @@ class StoreAccessProfile(BaseModel):
     empty_body_threshold: int = 256
     fallback_to_browser: bool = True
     fallback_to_proxy: bool = True
+    jitter_enabled: bool | None = None
+    jitter_min_seconds: float | None = None
+    jitter_max_seconds: float | None = None
+    header_rotation_enabled: bool | None = None
+    header_profile_ids: list[str] | None = None
+    proxy_enabled: bool | None = None
+    proxy_pool_path: str | None = None
+    proxy_mode: ProxyMode | None = None
+    proxy_sticky_requests: int | None = None
+    proxy_cooldown_seconds: int | None = None
+    proxy_ban_score_threshold: int | None = None
+    proxy_max_consecutive_failures: int | None = None
+    honeypot_filter_enabled: bool | None = None
+    honeypot_tokens: list[str] | None = None
 
 
 _DEFAULT = StoreAccessProfile(

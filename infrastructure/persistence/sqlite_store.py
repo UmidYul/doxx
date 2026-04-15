@@ -1030,6 +1030,23 @@ class SQLiteScraperStore:
         )
         return result.event_id
 
+    def has_claimable_outbox_rows(self) -> bool:
+        """Return whether at least one outbox row is ready to be claimed."""
+        now = _utcnow()
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                select 1
+                  from publication_outbox
+                 where status in ('pending', 'retryable')
+                   and available_at <= ?
+                   and (lease_expires_at is null or lease_expires_at <= ?)
+                 limit 1
+                """,
+                (_iso(now), _iso(now)),
+            ).fetchone()
+        return row is not None
+
     def claim_outbox_batch(
         self,
         *,
@@ -1109,9 +1126,15 @@ class SQLiteScraperStore:
         publisher_id: str,
         exchange_name: str,
         routing_key: str,
+        published_event: ScraperProductEvent | None = None,
     ) -> None:
         del exchange_name, routing_key
-        now = _utcnow()
+        if published_event is not None and published_event.publication.published_at is not None:
+            now = published_event.publication.published_at
+            payload_json = _json_dumps(published_event.model_dump(mode="json"))
+        else:
+            now = _utcnow()
+            payload_json = None
         with self._transaction() as connection:
             row = connection.execute(
                 "select id, raw_product_id, retry_count from publication_outbox where event_id = ?",
@@ -1126,6 +1149,7 @@ class SQLiteScraperStore:
                 update publication_outbox
                    set status = 'published',
                        retry_count = ?,
+                       payload_json = coalesce(?, payload_json),
                        published_at = ?,
                        lease_owner = null,
                        lease_expires_at = null,
@@ -1133,7 +1157,7 @@ class SQLiteScraperStore:
                        updated_at = ?
                  where id = ?
                 """,
-                (attempt_number, _iso(now), _iso(now), outbox_id),
+                (attempt_number, payload_json, _iso(now), _iso(now), outbox_id),
             )
             connection.execute(
                 """
@@ -1174,6 +1198,8 @@ class SQLiteScraperStore:
         routing_key: str,
         error_message: str,
         retryable: bool,
+        max_retries: int | None = None,
+        retry_base_seconds: int | None = None,
     ) -> None:
         del exchange_name, routing_key
         now = _utcnow()
@@ -1186,10 +1212,11 @@ class SQLiteScraperStore:
                 return
             outbox_id = int(row["id"])
             attempt_number = int(row["retry_count"]) + 1
-            max_retries = max(int(settings.SCRAPER_OUTBOX_MAX_RETRIES), 1)
-            can_retry = retryable and attempt_number < max_retries
+            max_retry_count = max(int(max_retries or settings.SCRAPER_OUTBOX_MAX_RETRIES), 1)
+            retry_delay_seconds = max(int(retry_base_seconds or settings.SCRAPER_OUTBOX_RETRY_BASE_SECONDS), 1)
+            can_retry = retryable and attempt_number < max_retry_count
             next_status = "retryable" if can_retry else "failed"
-            backoff_seconds = int(settings.SCRAPER_OUTBOX_RETRY_BASE_SECONDS) * max(1, 2 ** max(attempt_number - 1, 0))
+            backoff_seconds = retry_delay_seconds * max(1, 2 ** max(attempt_number - 1, 0))
             available_at = now + timedelta(seconds=backoff_seconds if can_retry else 0)
 
             connection.execute(

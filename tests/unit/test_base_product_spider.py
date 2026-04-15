@@ -239,3 +239,88 @@ def test_listing_duplicate_signature_increments_streak():
     )
     list(spider.parse_listing(r2))
     assert spider.crawl_registry.listing_pages_duplicated_total >= 1
+
+
+def test_parse_listing_honeypot_filter_drops_hidden_product_urls():
+    spider = _FrameworkSpider()
+    spider._crawl_registry_ref = None
+
+    def _schedule(url: str, *, response: scrapy.http.Response, meta: dict[str, Any]):
+        return scrapy.Request(response.urljoin(url), meta=meta)
+
+    spider.schedule_product_request = _schedule  # type: ignore[method-assign]
+
+    r = _listing_response(
+        "http://example.com/cat",
+        meta={
+            "inject_urls": [
+                "http://example.com/p/trap",
+                "http://example.com/p/live",
+            ],
+            "inject_next": None,
+            "page": 1,
+        },
+        body="""
+        <html><body>
+          <a href="/p/trap" style="display:none">trap</a>
+          <a href="/p/live">live</a>
+          <!-- filler to avoid empty-shell heuristic -->
+          <div>{}</div>
+        </body></html>
+        """.format("x" * 400),
+    )
+
+    with (
+        patch.object(settings, "SCRAPY_HONEYPOT_FILTER_ENABLED", True),
+        patch.object(settings, "SCRAPY_HONEYPOT_FILTER_MAX_FILTER_RATIO", 0.9),
+        patch("infrastructure.spiders.honeypot_filter.is_feature_enabled", return_value=True),
+    ):
+        out = list(spider.parse_listing(r))
+
+    urls = [req.url for req in out if isinstance(req, scrapy.Request)]
+    assert "http://example.com/p/trap" not in urls
+    assert "http://example.com/p/live" in urls
+
+
+def test_parse_listing_honeypot_ratio_guard_preserves_links():
+    spider = _FrameworkSpider()
+    spider._crawl_registry_ref = None
+
+    def _schedule(url: str, *, response: scrapy.http.Response, meta: dict[str, Any]):
+        return scrapy.Request(response.urljoin(url), meta=meta)
+
+    spider.schedule_product_request = _schedule  # type: ignore[method-assign]
+
+    r = _listing_response(
+        "http://example.com/cat",
+        meta={
+            "inject_urls": [
+                "http://example.com/p/1",
+                "http://example.com/p/2",
+                "http://example.com/p/3",
+            ],
+            "inject_next": None,
+            "page": 1,
+        },
+        body="""
+        <html><body>
+          <div hidden><a href="/p/1">1</a></div>
+          <div hidden><a href="/p/2">2</a></div>
+          <div hidden><a href="/p/3">3</a></div>
+          <div>{}</div>
+        </body></html>
+        """.format("x" * 400),
+    )
+
+    with (
+        patch.object(settings, "SCRAPY_HONEYPOT_FILTER_ENABLED", True),
+        patch.object(settings, "SCRAPY_HONEYPOT_FILTER_MAX_FILTER_RATIO", 0.2),
+        patch("infrastructure.spiders.honeypot_filter.is_feature_enabled", return_value=True),
+    ):
+        out = list(spider.parse_listing(r))
+
+    urls = [req.url for req in out if isinstance(req, scrapy.Request)]
+    assert len(urls) == 3
+    assert "http://example.com/p/1" in urls
+    assert "http://example.com/p/2" in urls
+    assert "http://example.com/p/3" in urls

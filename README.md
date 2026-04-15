@@ -35,7 +35,16 @@ pip install -e ".[dev]"
 cp .env.example .env
 ```
 
-Edit `.env`: set `SCRAPER_DB_PATH`, `RABBITMQ_URL`, `RABBITMQ_EXCHANGE`, `RABBITMQ_QUEUE`, and `RABBITMQ_ROUTING_KEY` for your local environment. `TRANSPORT_TYPE` should stay `disabled` for the active scraper contour; CRM settings remain legacy-only and are not part of the scraper-to-publisher runtime.
+Edit `.env`: set `SCRAPER_DB_PATH`, `RABBITMQ_URL`, `RABBITMQ_ADMIN_USER`, `RABBITMQ_ADMIN_PASS`, `RABBITMQ_PUBLISHER_USER`, `RABBITMQ_PUBLISHER_PASS`, and `RABBITMQ_CRM_USER`, `RABBITMQ_CRM_PASS` for your environment. Keep `RABBITMQ_DECLARE_TOPOLOGY=false` in the hardened stack: topology is created by `python -m scripts.bootstrap_rabbitmq` or the `rabbitmq-bootstrap` compose service. `TRANSPORT_TYPE` should stay `disabled` for the active scraper contour; CRM HTTP settings remain legacy-only and are not part of the scraper-to-publisher runtime.
+
+For hosted shared/free RabbitMQ providers such as CloudAMQP Little Lemur:
+
+- use the provider `amqps://...` URL in `RABBITMQ_URL`
+- set `RABBITMQ_CRM_URL` to the CRM-side `amqps://...` URL if it differs; otherwise the code can reuse the same broker host and swap to `RABBITMQ_CRM_USER` / `RABBITMQ_CRM_PASS`
+- point `RABBITMQ_MANAGEMENT_URL` to the provider HTTPS endpoint
+- set `RABBITMQ_BOOTSTRAP_MANAGE_VHOST=false`
+- set `RABBITMQ_BOOTSTRAP_MANAGE_USERS=false`
+- set `RABBITMQ_BOOTSTRAP_MANAGE_PERMISSIONS=false`
 
 ## Single-store run
 
@@ -49,7 +58,19 @@ python -m scrapy crawl mediapark -s CLOSESPIDER_ITEMCOUNT=5
 Run the standalone outbox publisher once:
 
 ```powershell
+python -m scripts.bootstrap_rabbitmq
 python -m services.publisher.main --once
+```
+
+The bootstrap command works in both modes:
+
+- local Docker RabbitMQ: creates vhost, users, permissions, queues, and bindings
+- hosted shared/free RabbitMQ: skips vhost/user/permission management when the three `RABBITMQ_BOOTSTRAP_MANAGE_*` flags are set to `false`
+
+If you want containers to talk to a hosted broker instead of the local one, use:
+
+```powershell
+docker compose -f docker-compose.cloud.yml up --build
 ```
 
 Run it continuously:
@@ -61,6 +82,7 @@ python -m services.publisher.main
 ## Local smoke & readiness
 
 ```powershell
+python -m scripts.rabbit_smoke
 python scripts/local_smoke.py
 python scripts/check_readiness.py
 ```
@@ -98,4 +120,5 @@ python -m pytest tests/acceptance -q
 ## Delivery boundary
 
 - **Required boundary:** RabbitMQ. The scraper side owns data until it is durably stored in scraper DB and successfully published from outbox to RabbitMQ.
+- **Broker posture:** management UI binds locally, AMQP binds on LAN, topology is bootstrapped idempotently, and publisher credentials are publish-only.
 - **Not in scope for this service:** CRM writes, deep canonical matching, multi-store merge, or final downstream normalization.

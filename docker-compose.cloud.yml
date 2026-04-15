@@ -1,0 +1,88 @@
+# Hosted broker contour: scraper/publisher use an external RabbitMQ instance
+# such as CloudAMQP. No local broker container is started here.
+
+services:
+  rabbitmq-bootstrap:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: moscraper-rabbitmq-bootstrap-cloud
+    environment:
+      RABBITMQ_MANAGEMENT_URL: ${RABBITMQ_MANAGEMENT_URL}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST}
+      RABBITMQ_ADMIN_USER: ${RABBITMQ_ADMIN_USER}
+      RABBITMQ_ADMIN_PASS: ${RABBITMQ_ADMIN_PASS}
+      RABBITMQ_PUBLISHER_USER: ${RABBITMQ_PUBLISHER_USER}
+      RABBITMQ_PUBLISHER_PASS: ${RABBITMQ_PUBLISHER_PASS}
+      RABBITMQ_CRM_USER: ${RABBITMQ_CRM_USER}
+      RABBITMQ_CRM_PASS: ${RABBITMQ_CRM_PASS}
+      RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-moscraper.events}
+      RABBITMQ_EXCHANGE_TYPE: ${RABBITMQ_EXCHANGE_TYPE:-topic}
+      RABBITMQ_QUEUE: ${RABBITMQ_QUEUE:-scraper.products.v1}
+      RABBITMQ_CRM_QUEUE: ${RABBITMQ_CRM_QUEUE:-crm.products.import.v1}
+      RABBITMQ_RETRY_EXCHANGE: ${RABBITMQ_RETRY_EXCHANGE:-crm.products.retry}
+      RABBITMQ_REQUEUE_EXCHANGE: ${RABBITMQ_REQUEUE_EXCHANGE:-crm.products.requeue}
+      RABBITMQ_DLX_EXCHANGE: ${RABBITMQ_DLX_EXCHANGE:-crm.products.dlx}
+      RABBITMQ_ROUTING_KEY: ${RABBITMQ_ROUTING_KEY:-listing.scraped.v1}
+      RABBITMQ_RETRY_30S_MS: ${RABBITMQ_RETRY_30S_MS:-30000}
+      RABBITMQ_RETRY_5M_MS: ${RABBITMQ_RETRY_5M_MS:-300000}
+      RABBITMQ_RETRY_30M_MS: ${RABBITMQ_RETRY_30M_MS:-1800000}
+      RABBITMQ_BOOTSTRAP_RECREATE_MISMATCHED_QUEUES: ${RABBITMQ_BOOTSTRAP_RECREATE_MISMATCHED_QUEUES:-false}
+      RABBITMQ_BOOTSTRAP_MANAGE_VHOST: ${RABBITMQ_BOOTSTRAP_MANAGE_VHOST:-false}
+      RABBITMQ_BOOTSTRAP_MANAGE_USERS: ${RABBITMQ_BOOTSTRAP_MANAGE_USERS:-false}
+      RABBITMQ_BOOTSTRAP_MANAGE_PERMISSIONS: ${RABBITMQ_BOOTSTRAP_MANAGE_PERMISSIONS:-false}
+    command: ["python", "-m", "scripts.bootstrap_rabbitmq"]
+    restart: "no"
+
+  scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: moscraper-scraper-cloud
+    depends_on:
+      rabbitmq-bootstrap:
+        condition: service_completed_successfully
+    environment:
+      BROKER_TYPE: rabbitmq
+      RABBITMQ_URL: ${RABBITMQ_URL}
+      RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-moscraper.events}
+      RABBITMQ_EXCHANGE_TYPE: ${RABBITMQ_EXCHANGE_TYPE:-topic}
+      RABBITMQ_QUEUE: ${RABBITMQ_QUEUE:-scraper.products.v1}
+      RABBITMQ_CRM_QUEUE: ${RABBITMQ_CRM_QUEUE:-crm.products.import.v1}
+      RABBITMQ_ROUTING_KEY: ${RABBITMQ_ROUTING_KEY:-listing.scraped.v1}
+      RABBITMQ_PUBLISH_MANDATORY: "true"
+      RABBITMQ_DECLARE_TOPOLOGY: "false"
+      RABBITMQ_HEARTBEAT_SECONDS: ${RABBITMQ_HEARTBEAT_SECONDS:-30}
+      RABBITMQ_CONNECTION_NAME: scraper-runtime
+      SCRAPER_DB_PATH: /data/scraper/scraper.db
+    volumes:
+      - scraper-data:/data/scraper
+    command: ["scrapy", "crawl", "mediapark"]
+
+  publisher:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: moscraper-publisher-cloud
+    depends_on:
+      rabbitmq-bootstrap:
+        condition: service_completed_successfully
+    environment:
+      RABBITMQ_URL: ${RABBITMQ_URL}
+      RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-moscraper.events}
+      RABBITMQ_EXCHANGE_TYPE: ${RABBITMQ_EXCHANGE_TYPE:-topic}
+      RABBITMQ_QUEUE: ${RABBITMQ_QUEUE:-scraper.products.v1}
+      RABBITMQ_CRM_QUEUE: ${RABBITMQ_CRM_QUEUE:-crm.products.import.v1}
+      RABBITMQ_ROUTING_KEY: ${RABBITMQ_ROUTING_KEY:-listing.scraped.v1}
+      RABBITMQ_PUBLISH_MANDATORY: "true"
+      RABBITMQ_DECLARE_TOPOLOGY: "false"
+      RABBITMQ_HEARTBEAT_SECONDS: ${RABBITMQ_HEARTBEAT_SECONDS:-30}
+      RABBITMQ_CONNECTION_NAME: ${RABBITMQ_CONNECTION_NAME:-publisher-service}
+      SCRAPER_DB_PATH: /data/scraper/scraper.db
+      PUBLISHER_POLL_INTERVAL_SECONDS: "2.0"
+    volumes:
+      - scraper-data:/data/scraper
+    command: ["python", "-m", "services.publisher.main"]
+
+volumes:
+  scraper-data:

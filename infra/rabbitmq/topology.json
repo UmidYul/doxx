@@ -1,25 +1,157 @@
 {
-  "version": 1,
-  "exchange": {
-    "name": "moscraper.events",
-    "type": "topic",
-    "durable": true
+  "version": 2,
+  "bootstrap_mode": "env-driven-management-api",
+  "source_of_truth": "scripts/bootstrap_rabbitmq.py",
+  "vhost": "moscraper",
+  "users": {
+    "admin": {
+      "name_env": "RABBITMQ_ADMIN_USER",
+      "role": "bootstrap-and-ui",
+      "permissions": {
+        "configure": ".*",
+        "write": ".*",
+        "read": ".*"
+      }
+    },
+    "publisher": {
+      "name_env": "RABBITMQ_PUBLISHER_USER",
+      "role": "publish-only",
+      "permissions": {
+        "configure": "^$",
+        "write": "^moscraper\\.events$",
+        "read": "^$"
+      }
+    },
+    "crm": {
+      "name_env": "RABBITMQ_CRM_USER",
+      "role": "consume-main-publish-retry",
+      "permissions": {
+        "configure": "^$",
+        "write": "^crm\\.products\\.retry$",
+        "read": "^(crm\\.products\\.import\\.v1|crm\\.products\\.import\\.v1\\.dlq)$"
+      }
+    }
   },
-  "queue": {
-    "name": "scraper.products.v1",
-    "durable": true
-  },
-  "routing_keys": {
-    "product_scraped": "listing.scraped.v1"
-  },
+  "exchanges": [
+    {
+      "name": "moscraper.events",
+      "type": "topic",
+      "durable": true,
+      "purpose": "producer events"
+    },
+    {
+      "name": "crm.products.retry",
+      "type": "direct",
+      "durable": true,
+      "purpose": "CRM retry ingress"
+    },
+    {
+      "name": "crm.products.requeue",
+      "type": "direct",
+      "durable": true,
+      "purpose": "retry queues route back to CRM main queue"
+    },
+    {
+      "name": "crm.products.dlx",
+      "type": "direct",
+      "durable": true,
+      "purpose": "terminal dead-letter exchange"
+    }
+  ],
+  "queues": [
+    {
+      "name": "scraper.products.v1",
+      "durable": true,
+      "owner": "scraper"
+    },
+    {
+      "name": "crm.products.import.v1",
+      "durable": true,
+      "owner": "crm-business",
+      "operator": "scraper-repo-bootstrap",
+      "arguments": {
+        "x-dead-letter-exchange": "crm.products.dlx",
+        "x-dead-letter-routing-key": "dead"
+      }
+    },
+    {
+      "name": "crm.products.import.v1.retry.30s",
+      "durable": true,
+      "arguments": {
+        "x-message-ttl": 30000,
+        "x-dead-letter-exchange": "crm.products.requeue",
+        "x-dead-letter-routing-key": "main"
+      }
+    },
+    {
+      "name": "crm.products.import.v1.retry.5m",
+      "durable": true,
+      "arguments": {
+        "x-message-ttl": 300000,
+        "x-dead-letter-exchange": "crm.products.requeue",
+        "x-dead-letter-routing-key": "main"
+      }
+    },
+    {
+      "name": "crm.products.import.v1.retry.30m",
+      "durable": true,
+      "arguments": {
+        "x-message-ttl": 1800000,
+        "x-dead-letter-exchange": "crm.products.requeue",
+        "x-dead-letter-routing-key": "main"
+      }
+    },
+    {
+      "name": "crm.products.import.v1.dlq",
+      "durable": true,
+      "purpose": "quarantine"
+    }
+  ],
+  "bindings": [
+    {
+      "source": "moscraper.events",
+      "destination": "scraper.products.v1",
+      "routing_key": "listing.scraped.v1"
+    },
+    {
+      "source": "moscraper.events",
+      "destination": "crm.products.import.v1",
+      "routing_key": "listing.scraped.v1"
+    },
+    {
+      "source": "crm.products.retry",
+      "destination": "crm.products.import.v1.retry.30s",
+      "routing_key": "30s"
+    },
+    {
+      "source": "crm.products.retry",
+      "destination": "crm.products.import.v1.retry.5m",
+      "routing_key": "5m"
+    },
+    {
+      "source": "crm.products.retry",
+      "destination": "crm.products.import.v1.retry.30m",
+      "routing_key": "30m"
+    },
+    {
+      "source": "crm.products.requeue",
+      "destination": "crm.products.import.v1",
+      "routing_key": "main"
+    },
+    {
+      "source": "crm.products.dlx",
+      "destination": "crm.products.import.v1.dlq",
+      "routing_key": "dead"
+    }
+  ],
   "ownership_boundary": {
     "scraper_side_finishes_at": "successful_publish_to_exchange",
-    "downstream_begins_at": "queue_binding_and_consumer_processing"
+    "rabbit_side_finishes_at": "message_routed_to_queue",
+    "crm_side_begins_at": "manual_ack_after_durable_crm_persistence"
   },
   "notes": [
-    "Publisher confirms are required.",
-    "Messages must be persistent.",
-    "Runtime queue/exchange/routing-key values mirror config.settings and publisher service defaults.",
-    "Event type remains scraper.product.scraped.v1; routing key is listing.scraped.v1."
+    "Publisher connects with RABBITMQ_DECLARE_TOPOLOGY=false in the hardened stack.",
+    "CRM consumes only crm.products.import.v1 and must not consume scraper.products.v1.",
+    "CRM business ownership of crm.products.import.v1 remains CRM-side even though this repo bootstraps the queue for local interoperability."
   ]
 }

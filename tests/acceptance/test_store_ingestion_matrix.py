@@ -85,12 +85,15 @@ def _response(rel_path: str, *, url: str, status: int = 200) -> scrapy.http.Html
 
 def _publisher_config(tmp_path: Path, store: str) -> PublisherServiceConfig:
     return PublisherServiceConfig(
-        rabbitmq_url="amqp://guest:guest@localhost:5672/",
+        rabbitmq_url="amqp://moscraper_publisher:test-pass@localhost:5672/moscraper",
         exchange_name="moscraper.events",
         exchange_type="topic",
         queue_name="scraper.products.v1",
         routing_key="listing.scraped.v1",
         publish_mandatory=True,
+        declare_topology=False,
+        heartbeat_seconds=30,
+        connection_name=f"publisher-{store}",
         batch_size=10,
         lease_seconds=60,
         max_retries=8,

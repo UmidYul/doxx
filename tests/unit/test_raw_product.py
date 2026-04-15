@@ -37,6 +37,20 @@ def test_as_scrapy_item_dict_matches_raw_product_shape():
     assert "_category_hint" not in d["raw_specs"]
 
 
+def test_as_scrapy_item_dict_preserves_string_stock_signal():
+    d = as_scrapy_item_dict(
+        {
+            "source": "mediapark",
+            "url": "https://mediapark.uz/p/1",
+            "source_id": "99",
+            "title": "Phone",
+            "price_str": "10",
+            "in_stock": "\u043d\u0435\u0442",
+        }
+    )
+    assert d["in_stock"] == "\u043d\u0435\u0442"
+
+
 def test_as_scrapy_item_dict_requires_source_and_url():
     with pytest.raises(ValueError, match="source"):
         as_scrapy_item_dict({"title": "x"})

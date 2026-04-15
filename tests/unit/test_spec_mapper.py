@@ -43,6 +43,88 @@ def test_tv_display_and_smart_tv():
     assert d.get("smart_tv") is True
 
 
+def test_phone_connectivity_versions_map_to_boolean_fields():
+    raw = {
+        "\u0432\u0435\u0440\u0441\u0438\u044f bluetooth": "5.3",
+        "\u0441\u0442\u0430\u043d\u0434\u0430\u0440\u0442 wi-fi": "802.11 a/b/g/n/ac",
+    }
+    spec, _, _ = map_raw_specs_to_typed_partial(raw, "phone", store_name="s", source_id=None, url="https://x")
+    d = spec.to_compact_dict()
+    assert d.get("has_bluetooth") is True
+    assert d.get("has_wifi") is True
+
+
+def test_phone_nfc_does_not_map_to_bluetooth():
+    raw = {"nfc": "\u0434\u0430"}
+    spec, _, _ = map_raw_specs_to_typed_partial(raw, "phone", store_name="s", source_id=None, url="https://x")
+    assert spec.has_bluetooth is None
+
+
+def test_tv_hdmi_unknown_not_forced_true():
+    raw = {"hdmi": "\u043d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d\u043e"}
+    spec, _, _ = map_raw_specs_to_typed_partial(raw, "tv", store_name="s", source_id=None, url="https://x")
+    assert spec.hdmi is None
+
+
+def test_appliance_numeric_ranges_not_forced_into_typed_specs():
+    raw = {
+        "\u043c\u043e\u0449\u043d\u043e\u0441\u0442\u044c": "20-30 W",
+        "\u043e\u0431\u044a\u0435\u043c": "12-15 l",
+    }
+    spec, _, _ = map_raw_specs_to_typed_partial(raw, "appliance", store_name="s", source_id=None, url="https://x")
+    d = spec.to_compact_dict()
+    assert d.get("power_w") is None
+    assert d.get("volume_l") is None
+
+
+def test_appliance_volume_ml_maps_to_litres():
+    raw = {"\u043e\u0431\u044a\u0435\u043c": "500 ml"}
+    spec, _, _ = map_raw_specs_to_typed_partial(raw, "appliance", store_name="s", source_id=None, url="https://x")
+    assert spec.volume_l == 0.5
+
+
+def test_phone_storage_composite_not_forced_into_typed_specs():
+    raw = {"\u0432\u0441\u0442\u0440\u043e\u0435\u043d\u043d\u0430\u044f \u043f\u0430\u043c\u044f\u0442\u044c": "8 GB + 256 GB"}
+    spec, _, _ = map_raw_specs_to_typed_partial(raw, "phone", store_name="s", source_id=None, url="https://x")
+    assert spec.storage_gb is None
+
+
+def test_phone_battery_composite_not_forced_into_typed_specs():
+    raw = {"\u0435\u043c\u043a\u043e\u0441\u0442\u044c \u0430\u043a\u043a\u0443\u043c\u0443\u043b\u044f\u0442\u043e\u0440\u0430": "5000/6000 mAh"}
+    spec, _, _ = map_raw_specs_to_typed_partial(raw, "phone", store_name="s", source_id=None, url="https://x")
+    assert spec.battery_mah is None
+
+
+def test_phone_display_dimension_not_forced_into_size():
+    raw = {"\u044d\u043a\u0440\u0430\u043d": "2400x1080"}
+    spec, _, _ = map_raw_specs_to_typed_partial(raw, "phone", store_name="s", source_id=None, url="https://x")
+    assert spec.display_size_inch is None
+
+
+def test_phone_refresh_rate_range_not_forced_into_typed_specs():
+    raw = {"\u0447\u0430\u0441\u0442\u043e\u0442\u0430 \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u044f \u044d\u043a\u0440\u0430\u043d\u0430": "60-120 Hz"}
+    spec, _, _ = map_raw_specs_to_typed_partial(raw, "phone", store_name="s", source_id=None, url="https://x")
+    assert spec.refresh_rate_hz is None
+
+
+def test_phone_camera_bundle_not_forced_into_main_camera():
+    raw = {"\u043a\u0430\u043c\u0435\u0440\u0430": "50+12 MP"}
+    spec, _, _ = map_raw_specs_to_typed_partial(raw, "phone", store_name="s", source_id=None, url="https://x")
+    assert spec.main_camera_mp is None
+
+
+def test_common_warranty_range_not_forced_into_months():
+    raw = {"\u0433\u0430\u0440\u0430\u043d\u0442\u0438\u044f": "12/24 months"}
+    spec, _, _ = map_raw_specs_to_typed_partial(raw, "appliance", store_name="s", source_id=None, url="https://x")
+    assert spec.warranty_months is None
+
+
+def test_laptop_battery_wh_composite_not_forced_into_typed_specs():
+    raw = {"\u0431\u0430\u0442\u0430\u0440\u0435\u044f wh": "56/70 Wh"}
+    spec, _, _ = map_raw_specs_to_typed_partial(raw, "laptop", store_name="s", source_id=None, url="https://x")
+    assert spec.battery_wh is None
+
+
 def test_implausible_battery_warning_not_in_typed():
     raw = {"ёмкость аккумулятора": "220 mAh"}
     spec, warnings, _ = map_raw_specs_to_typed_partial(raw, "phone", store_name="s", source_id=None, url="https://x")

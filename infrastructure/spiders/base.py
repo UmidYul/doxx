@@ -189,7 +189,7 @@ class BaseProductSpider(scrapy.Spider, ABC):
             return None
         record_request_scheduled_governance(store, purpose, m)
         referer = m.get("from_listing") or m.get("access_referer")
-        headers = build_desktop_headers(store, purpose, referer=referer)
+        headers = build_desktop_headers(store, purpose, referer=referer, request_url=url)
         return scrapy.Request(
             url,
             callback=callback,
@@ -357,6 +357,47 @@ class BaseProductSpider(scrapy.Spider, ABC):
         abs_category_urls = [
             response.urljoin(u.strip()) for u in raw_category_urls if u and str(u).strip()
         ]
+        store_key = self.store_name or self.name
+        from infrastructure.spiders.honeypot_filter import filter_honeypot_links
+
+        abs_urls, product_filter = filter_honeypot_links(
+            response,
+            abs_urls,
+            store_name=store_key,
+            link_kind="product",
+        )
+        if product_filter.dropped_count > 0 or product_filter.bypassed:
+            self._crawl_event(
+                "HONEYPOT_LINK_FILTER",
+                store=store_key,
+                spider=self.name,
+                url=response.url,
+                link_kind="product",
+                original_count=product_filter.original_count,
+                dropped_count=product_filter.dropped_count,
+                kept_count=product_filter.kept_count,
+                bypassed=product_filter.bypassed,
+                reason=product_filter.reason,
+            )
+        abs_category_urls, category_filter = filter_honeypot_links(
+            response,
+            abs_category_urls,
+            store_name=store_key,
+            link_kind="category",
+        )
+        if category_filter.dropped_count > 0 or category_filter.bypassed:
+            self._crawl_event(
+                "HONEYPOT_LINK_FILTER",
+                store=store_key,
+                spider=self.name,
+                url=response.url,
+                link_kind="category",
+                original_count=category_filter.original_count,
+                dropped_count=category_filter.dropped_count,
+                kept_count=category_filter.kept_count,
+                bypassed=category_filter.bypassed,
+                reason=category_filter.reason,
+            )
         canon_products = [self.canonicalize_product_url(u) for u in abs_urls]
 
         sig = self.build_listing_signature(response, canon_products, page)
@@ -377,7 +418,6 @@ class BaseProductSpider(scrapy.Spider, ABC):
             reg.remember_listing_signature(sig)
             dup_sig_streak = 0
 
-        store_key = self.store_name or self.name
         access_prof = get_store_profile(store_key)
         ban_sig = ban_detector.detect_ban_signal(
             response,

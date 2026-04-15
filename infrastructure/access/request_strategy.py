@@ -30,6 +30,8 @@ def should_use_proxy(
 ) -> bool:
     _ = purpose
     profile = get_store_profile(store_name)
+    if profile.proxy_enabled is False:
+        return False
     if force_proxy:
         return is_proxy_available() and (profile.fallback_to_proxy or profile.requires_proxy)
     if profile.requires_proxy:
@@ -123,6 +125,8 @@ def should_escalate_to_proxy(
     if not is_proxy_available():
         return False
     profile = get_store_profile(store_name)
+    if profile.proxy_enabled is False:
+        return False
     if profile.mode == "http_only":
         return False
     if not profile.fallback_to_proxy and not profile.requires_proxy:
@@ -197,8 +201,8 @@ def build_request_meta(
         meta.update(build_browser_request_meta(store_name, str(purpose)))
         mode_selected = "browser"
         _bump_mode("requests_browser_total")
-    elif use_proxy or (profile.requires_proxy and is_proxy_available()):
-        extra = build_proxy_meta(store_name, str(purpose))
+    elif use_proxy or (profile.requires_proxy and profile.proxy_enabled is not False and is_proxy_available()):
+        extra = build_proxy_meta(store_name, str(purpose), target_url=target_url)
         pu = extra.get("proxy")
         if pu and target_url:
             from infrastructure.security.proxy_security import should_allow_proxy_for_target
@@ -226,5 +230,4 @@ def build_request_meta(
         reason=detected_signal,
     )
     return meta
-
 

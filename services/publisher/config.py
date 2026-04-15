@@ -12,6 +12,9 @@ class PublisherServiceConfig(BaseModel):
     queue_name: str
     routing_key: str
     publish_mandatory: bool = True
+    declare_topology: bool = False
+    heartbeat_seconds: int = Field(ge=1)
+    connection_name: str
     batch_size: int = Field(ge=1)
     lease_seconds: int = Field(ge=1)
     max_retries: int = Field(ge=1)
@@ -29,6 +32,9 @@ class PublisherServiceConfig(BaseModel):
             queue_name=settings.RABBITMQ_QUEUE,
             routing_key=settings.RABBITMQ_ROUTING_KEY,
             publish_mandatory=settings.RABBITMQ_PUBLISH_MANDATORY,
+            declare_topology=settings.RABBITMQ_DECLARE_TOPOLOGY,
+            heartbeat_seconds=settings.RABBITMQ_HEARTBEAT_SECONDS,
+            connection_name=settings.RABBITMQ_CONNECTION_NAME or settings.PUBLISHER_SERVICE_NAME,
             batch_size=settings.SCRAPER_OUTBOX_BATCH_SIZE,
             lease_seconds=settings.SCRAPER_OUTBOX_LEASE_SECONDS,
             max_retries=settings.SCRAPER_OUTBOX_MAX_RETRIES,

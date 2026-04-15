@@ -1198,10 +1198,12 @@ class UzumSpider(BaseProductSpider):
         return urlunparse((parsed.scheme, parsed.netloc, parsed.path.rstrip("/"), "", normalized_query, ""))
 
     def _discovery_mode(self) -> str:
-        raw = str(getattr(self, "discovery_mode", "homepage") or "homepage").strip().lower()
+        # Default to hybrid discovery so bounded runs can reach larger, stable
+        # product volumes without requiring CLI overrides.
+        raw = str(getattr(self, "discovery_mode", "hybrid") or "hybrid").strip().lower()
         if raw in {"homepage", "categories", "hybrid"}:
             return raw
-        return "homepage"
+        return "hybrid"
 
     def _merge_ordered_values(self, *values: Any) -> list[str]:
         out: list[str] = []
