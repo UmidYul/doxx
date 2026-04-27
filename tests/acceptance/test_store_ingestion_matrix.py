@@ -7,11 +7,11 @@ import scrapy
 import scrapy.http
 
 from application.ingestion.persistence_service import ScraperPersistenceService
+from infrastructure.persistence.sqlite_store import SQLiteScraperStore
 from infrastructure.spiders.alifshop import AlifshopSpider
 from infrastructure.spiders.mediapark import MediaparkSpider
 from infrastructure.spiders.texnomart import TexnomartSpider
 from infrastructure.spiders.uzum import UzumSpider
-from infrastructure.persistence.sqlite_store import SQLiteScraperStore
 from services.publisher.config import PublisherServiceConfig
 from services.publisher.outbox_reader import SQLiteOutboxReader
 from services.publisher.publication_worker import PublicationWorker
@@ -100,6 +100,8 @@ def _publisher_config(tmp_path: Path, store: str) -> PublisherServiceConfig:
         retry_base_seconds=15,
         poll_interval_seconds=0.1,
         publisher_service_name=f"publisher-{store}",
+        scraper_db_backend="sqlite",
+        scraper_db_dsn="",
         scraper_db_path=str(tmp_path / f"{store}.db"),
     )
 

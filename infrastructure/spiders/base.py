@@ -4,12 +4,15 @@ import hashlib
 import json
 import logging
 from abc import ABC, abstractmethod
+from collections import deque
 from typing import Any, Iterator, Literal
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 
 import scrapy
 import scrapy.http
 
+from application.extractors.unit_normalizer import normalize_brand
+from application.normalization.category_inference import normalize_category_signal
 from config.settings import settings
 from domain.raw_product import as_scrapy_item_dict
 from infrastructure.access import ban_detector
@@ -21,6 +24,7 @@ from infrastructure.spiders.field_policy import (
     missing_recommended_fields,
     missing_required_fields,
 )
+from infrastructure.spiders.product_classifier import infer_known_brand
 from infrastructure.spiders.runtime_crawl_registry import CrawlRuntimeRegistry
 from infrastructure.spiders.qa_report import build_store_qa_report, crawl_snapshot_to_qa_metrics
 from infrastructure.spiders.store_acceptance import get_store_acceptance_profile
@@ -29,12 +33,16 @@ from infrastructure.spiders.url_tools import canonicalize_url, canonicalize_prod
 logger = logging.getLogger(__name__)
 
 SoftStatus = Literal["ok", "partial", "drop"]
+_PENDING_PRODUCT_DRAIN_LIMIT = 12
 
 
 class BaseProductSpider(scrapy.Spider, ABC):
     """Framework spider: category → listing pages → PDP, crawl-layer dedupe, pagination guards."""
 
     store_name: str = ""
+    category_url_map: dict[str, tuple[str, ...]] = {}
+    brand_url_map: dict[str, tuple[str, ...]] = {}
+    brand_category_url_map: dict[tuple[str, str], tuple[str, ...]] = {}
 
     custom_settings = {
         "DOWNLOAD_DELAY": 1.0,
@@ -88,6 +96,105 @@ class BaseProductSpider(scrapy.Spider, ABC):
     def request_meta_extra(self) -> dict[str, Any]:
         """Merged into every Request meta (e.g. ``playwright: True`` for Uzum)."""
         return {}
+
+    def target_start_category_urls(self, default_urls: list[str] | tuple[str, ...]) -> tuple[str, ...]:
+        """Return operator-selected seed URLs, falling back to the store defaults."""
+        explicit_urls = self._target_urls("category_url", "category_urls")
+        if explicit_urls:
+            return tuple(explicit_urls)
+
+        categories = self._target_categories()
+        brands = self._target_brands()
+        selected: list[str] = []
+
+        if categories and brands:
+            for category in categories:
+                for brand in brands:
+                    selected.extend(self.brand_category_url_map.get((category, brand), ()))
+
+        if not selected and categories:
+            for category in categories:
+                selected.extend(self.category_url_map.get(category, ()))
+
+        if not selected and brands:
+            for brand in brands:
+                selected.extend(self.brand_url_map.get(brand, ()))
+
+        return tuple(self._unique_preserve_order(selected or list(default_urls)))
+
+    def has_crawl_targeting(self) -> bool:
+        return bool(
+            self._target_urls("category_url", "category_urls")
+            or self._target_categories()
+            or self._target_brands()
+        )
+
+    def item_matches_targeting(self, item: dict[str, Any]) -> bool:
+        categories = self._target_categories()
+        brands = self._target_brands()
+        if categories:
+            item_category = normalize_category_signal(str(item.get("category_hint") or item.get("category") or ""))
+            if item_category not in categories:
+                return False
+        if brands:
+            item_brand = self._item_brand_key(item)
+            if item_brand not in brands:
+                return False
+        return True
+
+    def _target_values(self, *names: str) -> tuple[str, ...]:
+        values: list[str] = []
+        for name in names:
+            raw = getattr(self, name, None)
+            if raw is None:
+                continue
+            if isinstance(raw, (list, tuple, set)):
+                candidates = raw
+            else:
+                candidates = str(raw).replace("\n", ",").replace(";", ",").split(",")
+            for candidate in candidates:
+                value = str(candidate or "").strip()
+                if value:
+                    values.append(value)
+        return tuple(self._unique_preserve_order(values))
+
+    def _target_urls(self, *names: str) -> tuple[str, ...]:
+        return tuple(value for value in self._target_values(*names) if "://" in value)
+
+    def _target_categories(self) -> tuple[str, ...]:
+        categories: list[str] = []
+        for value in self._target_values("category", "categories", "category_hint", "category_hints"):
+            normalized = normalize_category_signal(value)
+            if normalized and normalized != "unknown":
+                categories.append(normalized)
+        return tuple(self._unique_preserve_order(categories))
+
+    def _target_brands(self) -> tuple[str, ...]:
+        brands: list[str] = []
+        for value in self._target_values("brand", "brands"):
+            normalized = normalize_brand(value)
+            if normalized:
+                brands.append(normalized.lower())
+        return tuple(self._unique_preserve_order(brands))
+
+    def _item_brand_key(self, item: dict[str, Any]) -> str | None:
+        raw_brand = str(item.get("brand") or "").strip()
+        title = str(item.get("title") or item.get("name") or "").strip()
+        inferred = infer_known_brand(title, ld_brand=raw_brand or None)
+        normalized = normalize_brand(inferred or raw_brand)
+        return normalized.lower() if normalized else None
+
+    @staticmethod
+    def _unique_preserve_order(values: list[str] | tuple[str, ...]) -> list[str]:
+        seen: set[str] = set()
+        out: list[str] = []
+        for value in values:
+            normalized = str(value or "").strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            out.append(normalized)
+        return out
 
     @property
     def crawl_registry(self) -> CrawlRuntimeRegistry:
@@ -252,6 +359,7 @@ class BaseProductSpider(scrapy.Spider, ABC):
             return
         if self.is_product_page(response):
             yield from self.parse_product(response)
+            yield from self._drain_pending_listing_products(response)
             return
         yield from self.parse_listing(response)
 
@@ -300,6 +408,80 @@ class BaseProductSpider(scrapy.Spider, ABC):
         if dup_sig_streak >= settings.SCRAPY_MAX_DUPLICATE_LISTING_REPEATS:
             return True, "duplicate_listing_repeats"
         return False, ""
+
+    def extract_common_next_page_url(
+        self,
+        response: scrapy.http.Response,
+        *,
+        product_urls: list[str] | None = None,
+        min_product_links: int = 1,
+        path_markers: tuple[str, ...] = (),
+        page_param: str = "page",
+    ) -> str | None:
+        """Find or synthesize a conventional query-parameter pagination URL."""
+        current_url = response.url
+        current_parts = urlsplit(current_url)
+        if path_markers and not any(marker in current_parts.path for marker in path_markers):
+            return None
+
+        explicit = self._extract_explicit_common_next_page_url(
+            response,
+            page_param=page_param,
+        )
+        if explicit:
+            return explicit
+
+        links = product_urls if product_urls is not None else self.extract_listing_product_urls(response)
+        if len(links) < min_product_links:
+            return None
+        current_page = self._common_page_number(current_url, page_param=page_param)
+        return self._build_common_paginated_url(current_url, current_page + 1, page_param=page_param)
+
+    def _extract_explicit_common_next_page_url(
+        self,
+        response: scrapy.http.Response,
+        *,
+        page_param: str = "page",
+    ) -> str | None:
+        next_href = (
+            response.css('a[rel="next"]::attr(href)').get()
+            or response.css('link[rel="next"]::attr(href)').get()
+            or response.css('a[aria-label*="next"]::attr(href), a[aria-label*="Next"]::attr(href)').get()
+        )
+        if next_href:
+            return response.urljoin(next_href)
+
+        current_parts = urlsplit(response.url)
+        current_path = current_parts.path.rstrip("/")
+        next_page = self._common_page_number(response.url, page_param=page_param) + 1
+        for href in response.css("a[href]::attr(href)").getall():
+            raw = str(href or "").strip()
+            if not raw or raw.startswith(("#", "javascript:", "mailto:", "tel:")):
+                continue
+            full = response.urljoin(raw)
+            parts = urlsplit(full)
+            if parts.scheme not in {"http", "https"}:
+                continue
+            if parts.netloc != current_parts.netloc:
+                continue
+            if parts.path.rstrip("/") != current_path:
+                continue
+            if self._common_page_number(full, page_param=page_param) == next_page:
+                return full
+        return None
+
+    @staticmethod
+    def _build_common_paginated_url(url: str, page: int, *, page_param: str = "page") -> str:
+        parts = urlsplit(url)
+        query = dict(parse_qsl(parts.query, keep_blank_values=True))
+        query[page_param] = str(page)
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+    @staticmethod
+    def _common_page_number(url: str, *, page_param: str = "page") -> int:
+        query = dict(parse_qsl(urlsplit(url).query, keep_blank_values=True))
+        raw = str(query.get(page_param) or "").strip()
+        return int(raw) if raw.isdigit() else 1
 
     def log_empty_listing_page(
         self,
@@ -516,6 +698,16 @@ class BaseProductSpider(scrapy.Spider, ABC):
                 meta=dict(meta),
             )
             if pr is None:
+                self._enqueue_pending_listing_product(
+                    u,
+                    dict(meta),
+                    category_url=category_url,
+                    page=page,
+                    from_listing=response.url,
+                )
+                page_seen_urls.add(c)
+                if sid:
+                    page_seen_source_ids.add(sid)
                 self._crawl_event(
                     "PRODUCT_SCHEDULE_BLOCKED",
                     category_url=category_url,
@@ -616,9 +808,84 @@ class BaseProductSpider(scrapy.Spider, ABC):
         canon = self.canonicalize_product_url(abs_url)
         pm = {
             **meta,
-            "from_listing": response.url,
+            "from_listing": meta.get("from_listing") or response.url,
         }
         return self.schedule_safe_request(canon, callback=self.parse, purpose="product", meta=pm)
+
+    def _pending_listing_product_queue(self):
+        queue = getattr(self, "_framework_pending_listing_products", None)
+        if not isinstance(queue, deque):
+            queue = deque()
+            self._framework_pending_listing_products = queue
+        seen = getattr(self, "_framework_pending_listing_product_urls", None)
+        if not isinstance(seen, set):
+            seen = set()
+            self._framework_pending_listing_product_urls = seen
+        return queue, seen
+
+    def _enqueue_pending_listing_product(
+        self,
+        abs_url: str,
+        meta: dict[str, Any],
+        *,
+        category_url: str,
+        page: int,
+        from_listing: str,
+    ) -> None:
+        canon = self.canonicalize_product_url(abs_url)
+        if self.should_skip_product_url(canon):
+            return
+        queue, seen = self._pending_listing_product_queue()
+        if canon in seen:
+            return
+        pending_meta = dict(meta)
+        pending_meta.setdefault("category_url", category_url)
+        pending_meta.setdefault("page", page)
+        pending_meta.setdefault("from_listing", from_listing)
+        queue.append((abs_url, pending_meta))
+        seen.add(canon)
+        self._crawl_event(
+            "PRODUCT_DEFERRED",
+            category_url=category_url,
+            page=page,
+            canonical_url=canon,
+            reason="resource_governance",
+            pending_count=len(queue),
+        )
+
+    def _drain_pending_listing_products(self, response: scrapy.http.Response):
+        queue, seen = self._pending_listing_product_queue()
+        drained = 0
+        while queue and drained < _PENDING_PRODUCT_DRAIN_LIMIT:
+            abs_url, meta = queue[0]
+            canon = self.canonicalize_product_url(abs_url)
+            source_id = self.extract_source_id_from_url(canon)
+            if self.should_skip_product_url(canon):
+                queue.popleft()
+                seen.discard(canon)
+                continue
+            req = self.schedule_product_request(
+                abs_url,
+                response=response,
+                meta=dict(meta),
+            )
+            if req is None:
+                self._crawl_event(
+                    "PRODUCT_SCHEDULE_BLOCKED",
+                    category_url=str(meta.get("category_url") or ""),
+                    page=int(meta.get("page") or 1),
+                    canonical_url=canon,
+                    reason="pending_resource_or_policy_gate",
+                    pending_count=len(queue),
+                )
+                break
+            queue.popleft()
+            seen.discard(canon)
+            self.crawl_registry.remember_product_url(canon)
+            if source_id:
+                self.crawl_registry.remember_source_id(source_id)
+            drained += 1
+            yield req
 
     def apply_soft_product_policy(
         self,
@@ -713,6 +980,18 @@ class BaseProductSpider(scrapy.Spider, ABC):
                 url=response.url,
                 category_url=str(response.meta.get("category_url") or ""),
                 required_missing=missing_required_fields(item),
+            )
+            return
+
+        if not self.item_matches_targeting(item):
+            self._crawl_event(
+                "PRODUCT_FILTERED_OUT",
+                store=self.store_name or self.name,
+                spider=self.name,
+                url=response.url,
+                category_url=str(response.meta.get("category_url") or ""),
+                category_hint=item.get("category_hint"),
+                brand=item.get("brand"),
             )
             return
 

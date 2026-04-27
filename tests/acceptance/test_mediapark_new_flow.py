@@ -39,6 +39,43 @@ def test_mediapark_listing_discovers_pdp_urls_nested_categories_and_next_page():
     assert next_page_url == "https://mediapark.uz/products/category/telefony-17/smartfony-40?page=2"
 
 
+def test_mediapark_listing_does_not_synthesize_missing_next_page_for_small_listing():
+    spider = MediaparkSpider()
+    response = scrapy.http.HtmlResponse(
+        url="https://mediapark.uz/products/category/smartfony-po-brendu-660/smartfony-apple-iphone-211",
+        request=scrapy.Request("https://mediapark.uz/products/category/smartfony-po-brendu-660/smartfony-apple-iphone-211"),
+        body=b"""
+        <html><body>
+          <a href="/products/view/apple-iphone-15-999001">Phone 1</a>
+          <a href="/products/view/apple-iphone-16-999002">Phone 2</a>
+          <nav><span>1</span><span>Next</span></nav>
+        </body></html>
+        """,
+        encoding="utf-8",
+    )
+
+    assert spider.extract_next_page_url(response) is None
+
+
+def test_mediapark_listing_synthesizes_hidden_query_page_when_grid_is_full():
+    spider = MediaparkSpider()
+    links = "\n".join(
+        f'<a href="/products/view/apple-iphone-demo-{idx}">Phone {idx}</a>'
+        for idx in range(1000, 1024)
+    )
+    response = scrapy.http.HtmlResponse(
+        url="https://mediapark.uz/products/category/smartfony-po-brendu-660/smartfony-apple-iphone-211",
+        request=scrapy.Request("https://mediapark.uz/products/category/smartfony-po-brendu-660/smartfony-apple-iphone-211"),
+        body=f"<html><body>{links}</body></html>".encode("utf-8"),
+        encoding="utf-8",
+    )
+
+    assert (
+        spider.extract_next_page_url(response)
+        == "https://mediapark.uz/products/category/smartfony-po-brendu-660/smartfony-apple-iphone-211?page=2"
+    )
+
+
 def test_mediapark_start_requests_prefers_product_sitemap_by_default(monkeypatch):
     spider = MediaparkSpider()
 
@@ -101,6 +138,7 @@ def test_mediapark_sitemap_index_schedules_only_detailed_leaf_sitemaps(monkeypat
     monkeypatch.setattr(spider, "schedule_safe_request", _fake_schedule)
     response = scrapy.http.HtmlResponse(
         url=spider.product_sitemap_index_url,
+        request=scrapy.Request(spider.product_sitemap_index_url, meta={"category_url": spider.product_sitemap_index_url}),
         body="""
         <sitemapindex>
           <sitemap><loc>https://mediapark.uz/product-view/1/detailed.xml</loc></sitemap>

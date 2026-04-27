@@ -141,6 +141,62 @@ def test_blocked_product_url_not_marked_seen_and_can_retry_next_listing(monkeypa
     assert spider.crawl_registry.product_urls_deduped_total == 0
 
 
+def test_blocked_product_urls_are_deferred_and_drained(monkeypatch: pytest.MonkeyPatch):
+    spider = _FrameworkSpider()
+    spider._crawl_registry_ref = None
+    calls = {"count": 0}
+
+    def _schedule_with_two_slots(url: str, *, response: scrapy.http.Response, meta: dict[str, Any]):
+        calls["count"] += 1
+        if calls["count"] > 2:
+            return None
+        return scrapy.Request(response.urljoin(url), meta=meta)
+
+    monkeypatch.setattr(spider, "schedule_product_request", _schedule_with_two_slots)
+
+    listing = _listing_response(
+        "http://example.com/cat",
+        meta={
+            "inject_urls": [
+                "http://example.com/p/1",
+                "http://example.com/p/2",
+                "http://example.com/p/3",
+                "http://example.com/p/4",
+            ],
+            "inject_next": None,
+            "page": 1,
+        },
+    )
+    scheduled = list(spider.parse_listing(listing))
+
+    assert [req.url for req in scheduled] == [
+        "http://example.com/p/1",
+        "http://example.com/p/2",
+    ]
+    pending, pending_seen = spider._pending_listing_product_queue()
+    assert len(pending) == 2
+    assert pending_seen == {"http://example.com/p/3", "http://example.com/p/4"}
+
+    def _schedule_open(url: str, *, response: scrapy.http.Response, meta: dict[str, Any]):
+        return scrapy.Request(response.urljoin(url), meta=meta)
+
+    monkeypatch.setattr(spider, "schedule_product_request", _schedule_open)
+    product_response = TextResponse(
+        url="http://example.com/pdp/1",
+        request=scrapy.Request("http://example.com/pdp/1"),
+        body=b"{}",
+        encoding="utf-8",
+    )
+    drained = list(spider._drain_pending_listing_products(product_response))
+
+    assert [req.url for req in drained] == [
+        "http://example.com/p/3",
+        "http://example.com/p/4",
+    ]
+    assert len(pending) == 0
+    assert pending_seen == set()
+
+
 def test_should_stop_pagination_empty_repeats():
     spider = _FrameworkSpider()
     with (
@@ -193,6 +249,66 @@ def test_pagination_stops_on_revisited_listing_url():
     assert not any("page=2" in x.url for x in next_reqs)
 
 
+def test_common_next_page_finds_hidden_query_page_link():
+    spider = _FrameworkSpider()
+    response = _listing_response(
+        "http://example.com/cat",
+        meta={"inject_urls": [], "inject_next": None, "page": 1},
+        body="""
+        <html><body>
+          <a style="display:none" href="/cat?page=2">2</a>
+          <div>{}</div>
+        </body></html>
+        """.format("x" * 400),
+    )
+
+    assert (
+        spider.extract_common_next_page_url(
+            response,
+            product_urls=[],
+            min_product_links=99,
+            path_markers=("/cat",),
+        )
+        == "http://example.com/cat?page=2"
+    )
+
+
+def test_common_next_page_synthesizes_query_page_and_preserves_filters():
+    spider = _FrameworkSpider()
+    response = _listing_response(
+        "http://example.com/cat?brand=apple&sort=price",
+        meta={"inject_urls": [], "inject_next": None, "page": 1},
+    )
+
+    assert (
+        spider.extract_common_next_page_url(
+            response,
+            product_urls=["http://example.com/p/1", "http://example.com/p/2"],
+            min_product_links=2,
+            path_markers=("/cat",),
+        )
+        == "http://example.com/cat?brand=apple&sort=price&page=2"
+    )
+
+
+def test_common_next_page_respects_minimum_product_count():
+    spider = _FrameworkSpider()
+    response = _listing_response(
+        "http://example.com/cat",
+        meta={"inject_urls": [], "inject_next": None, "page": 1},
+    )
+
+    assert (
+        spider.extract_common_next_page_url(
+            response,
+            product_urls=["http://example.com/p/1"],
+            min_product_links=2,
+            path_markers=("/cat",),
+        )
+        is None
+    )
+
+
 def test_apply_soft_product_partial_without_price():
     spider = _FrameworkSpider()
     resp = TextResponse(
@@ -225,6 +341,35 @@ def test_apply_soft_product_drop_without_title_or_id():
     item, status = spider.apply_soft_product_policy(raw, resp)
     assert item is None
     assert status == "drop"
+
+
+def test_targeting_normalizes_category_and_iphone_brand():
+    spider = _FrameworkSpider()
+    spider.category = "phones"
+    spider.brand = "iPhone"
+
+    assert spider._target_categories() == ("phone",)
+    assert spider._target_brands() == ("apple",)
+    assert spider.item_matches_targeting({"title": "iPhone 15 Pro", "category_hint": "phone", "brand": ""})
+    assert not spider.item_matches_targeting({"title": "Samsung Galaxy S24", "category_hint": "phone", "brand": "Samsung"})
+
+
+def test_target_start_category_urls_prefers_exact_brand_category_map():
+    spider = _FrameworkSpider()
+    spider.category_url_map = {"phone": ("http://example.com/phones",)}
+    spider.brand_category_url_map = {("phone", "apple"): ("http://example.com/phones/apple",)}
+    spider.category = "phone"
+    spider.brand = "iPhone"
+
+    assert spider.target_start_category_urls(("http://example.com/default",)) == ("http://example.com/phones/apple",)
+
+
+def test_target_start_category_urls_prefers_explicit_category_url():
+    spider = _FrameworkSpider()
+    spider.category = "phone"
+    spider.category_url = "http://example.com/custom"
+
+    assert spider.target_start_category_urls(("http://example.com/default",)) == ("http://example.com/custom",)
 
 
 def test_listing_duplicate_signature_increments_streak():

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from typing import Any, Iterator
-from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import scrapy
 
@@ -114,6 +114,17 @@ class MediaparkSpider(BaseProductSpider):
     product_sitemap_index_url = "https://mediapark.uz/product-view/products.xml"
     _MAX_CATEGORY_PAGES = 12
     _MAX_EMPTY_OR_DUP_STREAK = 2
+    _SYNTHETIC_NEXT_MIN_PRODUCT_LINKS = 24
+    category_url_map = {
+        "phone": ("https://mediapark.uz/products/category/telefony-17/smartfony-40",),
+        "laptop": ("https://mediapark.uz/products/category/noutbuki-i-ultrabuki-22/noutbuki-313",),
+        "tv": ("https://mediapark.uz/products/category/televizory-i-smart-televizory-8/televizory-307",),
+        "accessory": ("https://mediapark.uz/products/category/gadzhety-18/smart-chasy-51",),
+    }
+    brand_category_url_map = {
+        ("phone", "apple"): ("https://mediapark.uz/products/category/smartfony-po-brendu-660/smartfony-apple-iphone-211",),
+        ("phone", "samsung"): ("https://mediapark.uz/products/category/smartfony-po-brendu-660/smartfony-samsung-210",),
+    }
 
     custom_settings = {
         **BaseProductSpider.custom_settings,
@@ -131,12 +142,12 @@ class MediaparkSpider(BaseProductSpider):
     }
 
     def start_category_urls(self) -> tuple[str, ...]:
-        return (
+        return self.target_start_category_urls((
             "https://mediapark.uz/products/category/telefony-17/smartfony-40",
             "https://mediapark.uz/products/category/noutbuki-i-ultrabuki-22/noutbuki-313",
             "https://mediapark.uz/products/category/televizory-i-smart-televizory-8/televizory-307",
             "https://mediapark.uz/products/category/gadzhety-18/smart-chasy-51",
-        )
+        ))
 
     def start_requests(self):
         discovery_mode = self._discovery_mode()
@@ -183,10 +194,15 @@ class MediaparkSpider(BaseProductSpider):
     def extract_next_page_url(self, response: scrapy.http.Response) -> str | None:
         if response.url.lower().endswith(".xml"):
             return None
-        if not self._extract_product_links(response.text, base_url=response.url):
+        product_links = self._extract_product_links(response.text, base_url=response.url)
+        if not product_links:
             return None
-        current_page = self._page_number(response.url)
-        return self._build_paginated_url(response.url, current_page + 1)
+        return self.extract_common_next_page_url(
+            response,
+            product_urls=product_links,
+            min_product_links=self._SYNTHETIC_NEXT_MIN_PRODUCT_LINKS,
+            path_markers=("/products/category/",),
+        )
 
     def should_stop_pagination(
         self,
@@ -495,21 +511,6 @@ class MediaparkSpider(BaseProductSpider):
         return clean
 
     @staticmethod
-    def _build_paginated_url(category_url: str, page: int) -> str:
-        if page <= 1:
-            return category_url
-        parts = urlsplit(category_url)
-        query = dict(parse_qsl(parts.query, keep_blank_values=True))
-        query["page"] = str(page)
-        return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
-
-    @staticmethod
-    def _page_number(url: str) -> int:
-        query = dict(parse_qsl(urlsplit(url).query, keep_blank_values=True))
-        raw = str(query.get("page") or "").strip()
-        return int(raw) if raw.isdigit() else 1
-
-    @staticmethod
     def _extract_sitemap_locs(xml_text: str) -> list[str]:
         return [match.strip() for match in _SITEMAP_LOC_RE.findall(xml_text) if match.strip()]
 
@@ -584,6 +585,8 @@ class MediaparkSpider(BaseProductSpider):
         )
 
     def _discovery_mode(self) -> str:
+        if self.has_crawl_targeting():
+            return "categories"
         raw = str(getattr(self, "discovery_mode", "sitemap") or "sitemap").strip().lower()
         if raw in {"sitemap", "categories", "hybrid"}:
             return raw

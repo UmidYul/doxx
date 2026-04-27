@@ -3,7 +3,7 @@ from __future__ import annotations
 import html
 import re
 from typing import Any
-from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qs, urlparse, urlunparse
 
 import scrapy.http
 
@@ -68,6 +68,47 @@ class AlifshopSpider(BaseProductSpider):
     name = "alifshop"
     store_name = "alifshop"
     allowed_domains = ["alifshop.uz", "www.alifshop.uz"]
+    category_url_map = {
+        "phone": (
+            "https://alifshop.uz/ru/categories/smartfoni-apple",
+            "https://alifshop.uz/ru/categories/smartfoni-samsung",
+            "https://alifshop.uz/ru/categories/smartfoni-xiaomi",
+            "https://alifshop.uz/ru/categories/smartfoni-honor",
+            "https://alifshop.uz/ru/categories/smartfoni-tecno",
+            "https://alifshop.uz/ru/categories/smartfoni-vivo",
+        ),
+        "laptop": (
+            "https://alifshop.uz/ru/categories/noutbuki-i-kompjyuteri",
+            "https://alifshop.uz/ru/categories/vse-noutbuki",
+        ),
+        "tv": (
+            "https://alifshop.uz/ru/categories/televizori-i-proektori",
+            "https://alifshop.uz/ru/categories/tv-i-proektori",
+        ),
+        "appliance": (
+            "https://alifshop.uz/ru/categories/tehnika-dlya-kuhni",
+            "https://alifshop.uz/ru/categories/tehnika-dlya-doma",
+            "https://alifshop.uz/ru/categories/holodiljniki-i-moroziljnie-kameri",
+            "https://alifshop.uz/ru/categories/stiraljnie-mashini",
+            "https://alifshop.uz/ru/categories/mikrovolnovovie-pechi",
+        ),
+        "accessory": (
+            "https://alifshop.uz/ru/categories/smart-chasi",
+            "https://alifshop.uz/ru/categories/fitnes-brasleti",
+            "https://alifshop.uz/ru/categories/umnie-ochki",
+            "https://alifshop.uz/ru/categories/umnie-koljca",
+            "https://alifshop.uz/ru/categories/umnie-kolonki",
+        ),
+        "gaming": ("https://alifshop.uz/ru/categories/tehnika-dlya-igr",),
+    }
+    brand_category_url_map = {
+        ("phone", "apple"): ("https://alifshop.uz/ru/categories/smartfoni-apple",),
+        ("phone", "samsung"): ("https://alifshop.uz/ru/categories/smartfoni-samsung",),
+        ("phone", "xiaomi"): ("https://alifshop.uz/ru/categories/smartfoni-xiaomi",),
+        ("phone", "honor"): ("https://alifshop.uz/ru/categories/smartfoni-honor",),
+        ("phone", "tecno"): ("https://alifshop.uz/ru/categories/smartfoni-tecno",),
+        ("phone", "vivo"): ("https://alifshop.uz/ru/categories/smartfoni-vivo",),
+    }
 
     custom_settings = {
         **BaseProductSpider.custom_settings,
@@ -113,7 +154,7 @@ class AlifshopSpider(BaseProductSpider):
                 continue
             seen.add(normalized)
             out.append(normalized)
-        return tuple(out)
+        return self.target_start_category_urls(tuple(out))
 
     def is_product_page(self, response: scrapy.http.Response) -> bool:
         return bool(_PRODUCT_PATH_RE.search(urlparse(response.url).path))
@@ -202,22 +243,7 @@ class AlifshopSpider(BaseProductSpider):
         return any(path.startswith(prefix) for prefix in _ALIFSHOP_TECH_CATEGORY_HINTS)
 
     def extract_next_page_url(self, response: scrapy.http.Response) -> str | None:
-        next_href = (
-            response.css('a[rel="next"]::attr(href)').get()
-            or response.css('link[rel="next"]::attr(href)').get()
-            or response.css('a[aria-label*="next"]::attr(href), a[aria-label*="Next"]::attr(href)').get()
-        )
-        if next_href:
-            return response.urljoin(next_href)
-
-        if not self.extract_listing_product_urls(response):
-            return None
-
-        parsed = urlparse(response.url)
-        query = parse_qs(parsed.query)
-        page = int(query.get("page", ["1"])[0] or "1")
-        query["page"] = [str(page + 1)]
-        return urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", urlencode({k: v[0] for k, v in query.items()}), ""))
+        return self.extract_common_next_page_url(response, path_markers=("/categories/",))
 
     def extract_source_id_from_url(self, url: str) -> str | None:
         parsed = urlparse(url)

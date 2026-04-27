@@ -4,7 +4,7 @@ import json
 import re
 from collections import deque
 from typing import Any, Iterator
-from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qs, urlparse, urlunparse
 
 import scrapy.http
 
@@ -77,6 +77,12 @@ class TexnomartSpider(BaseProductSpider):
     store_name = "texnomart"
     allowed_domains = ["texnomart.uz", "www.texnomart.uz"]
     product_sitemap_url = "https://texnomart.uz/sitemap.xml"
+    category_url_map = {
+        "phone": ("https://texnomart.uz/ru/katalog/smartfony/",),
+        "laptop": ("https://texnomart.uz/ru/katalog/noutbuki/",),
+        "tablet": ("https://texnomart.uz/ru/katalog/planshety/",),
+        "tv": ("https://texnomart.uz/ru/katalog/televizory/",),
+    }
 
     custom_settings = {
         **BaseProductSpider.custom_settings,
@@ -94,12 +100,12 @@ class TexnomartSpider(BaseProductSpider):
     }
 
     def start_category_urls(self) -> tuple[str, ...]:
-        return (
+        return self.target_start_category_urls((
             "https://texnomart.uz/ru/katalog/smartfony/",
             "https://texnomart.uz/ru/katalog/noutbuki/",
             "https://texnomart.uz/ru/katalog/planshety/",
             "https://texnomart.uz/ru/katalog/televizory/",
-        )
+        ))
 
     def start_requests(self):
         discovery_mode = self._discovery_mode()
@@ -335,24 +341,10 @@ class TexnomartSpider(BaseProductSpider):
         return sorted(out)
 
     def extract_next_page_url(self, response: scrapy.http.Response) -> str | None:
-        next_href = (
-            response.css('a[rel="next"]::attr(href)').get()
-            or response.css('link[rel="next"]::attr(href)').get()
-            or response.css('a[aria-label*="Next"]::attr(href), a[aria-label*="next"]::attr(href)').get()
+        return self.extract_common_next_page_url(
+            response,
+            path_markers=("/catalog/", "/katalog/"),
         )
-        if next_href:
-            return response.urljoin(next_href)
-
-        if not self.extract_listing_product_urls(response):
-            return None
-        parsed = urlparse(response.url)
-        if "/catalog/" not in parsed.path and "/katalog/" not in parsed.path:
-            return None
-        query = parse_qs(parsed.query)
-        page = int(query.get("page", ["1"])[0] or "1")
-        query["page"] = [str(page + 1)]
-        new_query = urlencode({k: v[0] for k, v in query.items()})
-        return urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", new_query, ""))
 
     @staticmethod
     def _extract_sitemap_locs(xml_text: str) -> list[str]:
@@ -853,6 +845,8 @@ class TexnomartSpider(BaseProductSpider):
         return None
 
     def _discovery_mode(self) -> str:
+        if self.has_crawl_targeting():
+            return "categories"
         raw = str(getattr(self, "discovery_mode", "sitemap") or "sitemap").strip().lower()
         if raw in {"sitemap", "categories", "hybrid"}:
             return raw

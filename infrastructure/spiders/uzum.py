@@ -134,6 +134,12 @@ class UzumSpider(BaseProductSpider):
     name = "uzum"
     store_name = "uzum"
     allowed_domains = ["uzum.uz"]
+    category_url_map = {
+        "phone": (_UZUM_PRIMARY_SMARTPHONE_CATEGORY_URL,),
+        "laptop": (_UZUM_LAPTOP_CATEGORY_URL,),
+        "tablet": (_UZUM_TABLET_CATEGORY_URL,),
+        "tv": (_UZUM_TV_CATEGORY_URL,),
+    }
 
     custom_settings = {
         **BaseProductSpider.custom_settings,
@@ -164,12 +170,12 @@ class UzumSpider(BaseProductSpider):
     }
 
     def start_category_urls(self) -> tuple[str, ...]:
-        return (
+        return self.target_start_category_urls((
             _UZUM_PRIMARY_SMARTPHONE_CATEGORY_URL,
             _UZUM_LAPTOP_CATEGORY_URL,
             _UZUM_TABLET_CATEGORY_URL,
             _UZUM_TV_CATEGORY_URL,
-        )
+        ))
 
     def start_requests(self):
         discovery_mode = self._discovery_mode()
@@ -415,25 +421,7 @@ class UzumSpider(BaseProductSpider):
         return sorted(out)
 
     def extract_next_page_url(self, response: scrapy.http.Response) -> str | None:
-        # First, prefer explicit "next" links if they exist.
-        next_href = (
-            response.css('a[rel="next"]::attr(href)').get()
-            or response.css('link[rel="next"]::attr(href)').get()
-        )
-        if next_href:
-            return response.urljoin(next_href)
-        # Fallback for catalog pages with page query parameter.
-        # BaseProductSpider stop conditions prevent infinite loops on repeated pages.
-        if not self.extract_listing_product_urls(response):
-            return None
-        parsed = urlparse(response.url)
-        if "/category/" not in parsed.path:
-            return None
-        q = parse_qs(parsed.query)
-        page = int(q.get("page", ["1"])[0] or "1")
-        q["page"] = [str(page + 1)]
-        new_query = urlencode({k: v[0] for k, v in q.items()})
-        return urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", new_query, ""))
+        return self.extract_common_next_page_url(response, path_markers=("/category/",))
 
     def build_listing_signature(
         self,
@@ -1200,6 +1188,8 @@ class UzumSpider(BaseProductSpider):
     def _discovery_mode(self) -> str:
         # Default to hybrid discovery so bounded runs can reach larger, stable
         # product volumes without requiring CLI overrides.
+        if self.has_crawl_targeting():
+            return "categories"
         raw = str(getattr(self, "discovery_mode", "hybrid") or "hybrid").strip().lower()
         if raw in {"homepage", "categories", "hybrid"}:
             return raw
