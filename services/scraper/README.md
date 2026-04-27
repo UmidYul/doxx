@@ -29,7 +29,7 @@ The repo still contains runtime code under legacy package roots, but the logical
 
 - spiders: `infrastructure/spiders/`
 - save-to-db pipeline: `infrastructure/pipelines/scraper_storage_pipeline.py`
-- persistence adapter: `infrastructure/persistence/sqlite_store.py`
+- persistence adapter: `infrastructure/persistence/postgres_store.py` (`sqlite_store.py` remains as legacy/local fallback)
 - raw snapshot model: `domain/scraped_product.py`
 
 ## Migration note

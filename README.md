@@ -1,24 +1,25 @@
 # Moscraper
 
-Scrapy-based ingestion service for Uzbekistan e-commerce stores. The active delivery boundary is now:
+Scrapy-based ingestion service for Uzbekistan e-commerce stores.
 
-`Store Spider -> structured raw item -> Scraper DB -> outbox -> Publisher Service -> RabbitMQ`
+Active runtime boundary:
 
-- **Config reference:** [.env.example](.env.example) (copy to `.env`; loaded by `pydantic-settings`)
-- **Doc index:** [docs/README.md](docs/README.md)
-- **Commands & DX:** [DEV_WORKFLOW.md](DEV_WORKFLOW.md)
+`Store Spider -> structured raw item -> Supabase-backed Scraper DB -> outbox -> Publisher Service -> RabbitMQ`
 
-## Current architecture (short)
+- Config reference: [.env.example](.env.example)
+- Doc index: [docs/README.md](docs/README.md)
+- Commands and DX: [DEV_WORKFLOW.md](DEV_WORKFLOW.md)
 
-- **Scrapy** spiders under `infrastructure/spiders/`; store lists driven by `STORE_NAMES` / settings.
-- **Scraper pipeline:** validate item → persist snapshot into local scraper DB → enqueue outbox row.
-- **Publisher service:** reads unpublished outbox rows and publishes contract events to RabbitMQ with safe retry.
-- **Scraper DB:** keeps scrape runs, product snapshots, outbox state, and publication attempts for replay/debug/export.
-- **Normalization/CRM code:** still exists in the repo as legacy material, but the active runtime path is the scraper DB/outbox publisher contour.
+## Current architecture
+
+- Scrapy spiders live under `infrastructure/spiders/`.
+- The scraper runtime persists each item into Postgres tables under the `scraper` schema and refreshes one durable outbox row per raw product.
+- The standalone publisher claims outbox rows, publishes `scraper.product.scraped.v1` to RabbitMQ, and records publication attempts.
+- CRM remains downstream of RabbitMQ and continues to consume from `crm.products.import.v1`.
 
 ## Quick setup
 
-Windows (PowerShell):
+Windows:
 
 ```powershell
 python -m venv .venv
@@ -35,16 +36,30 @@ pip install -e ".[dev]"
 cp .env.example .env
 ```
 
-Edit `.env`: set `SCRAPER_DB_PATH`, `RABBITMQ_URL`, `RABBITMQ_ADMIN_USER`, `RABBITMQ_ADMIN_PASS`, `RABBITMQ_PUBLISHER_USER`, `RABBITMQ_PUBLISHER_PASS`, and `RABBITMQ_CRM_USER`, `RABBITMQ_CRM_PASS` for your environment. Keep `RABBITMQ_DECLARE_TOPOLOGY=false` in the hardened stack: topology is created by `python -m scripts.bootstrap_rabbitmq` or the `rabbitmq-bootstrap` compose service. `TRANSPORT_TYPE` should stay `disabled` for the active scraper contour; CRM HTTP settings remain legacy-only and are not part of the scraper-to-publisher runtime.
+Set these before runtime:
 
-For hosted shared/free RabbitMQ providers such as CloudAMQP Little Lemur:
+- `SCRAPER_DB_BACKEND=postgres`
+- `SCRAPER_DB_DSN`
+- `SCRAPER_DB_MIGRATION_DSN`
+- `RABBITMQ_URL`
+- `RABBITMQ_MANAGEMENT_URL`
+- `RABBITMQ_CRM_USER` / `RABBITMQ_CRM_PASS`
 
-- use the provider `amqps://...` URL in `RABBITMQ_URL`
-- set `RABBITMQ_CRM_URL` to the CRM-side `amqps://...` URL if it differs; otherwise the code can reuse the same broker host and swap to `RABBITMQ_CRM_USER` / `RABBITMQ_CRM_PASS`
-- point `RABBITMQ_MANAGEMENT_URL` to the provider HTTPS endpoint
-- set `RABBITMQ_BOOTSTRAP_MANAGE_VHOST=false`
-- set `RABBITMQ_BOOTSTRAP_MANAGE_USERS=false`
-- set `RABBITMQ_BOOTSTRAP_MANAGE_PERMISSIONS=false`
+Keep `RABBITMQ_DECLARE_TOPOLOGY=false` in the hardened stack. `TRANSPORT_TYPE` stays `disabled` for the active scraper contour.
+
+## Bootstrap
+
+Apply the Postgres schema/bootstrap SQL:
+
+```powershell
+python -m scripts.bootstrap_scraper_db
+```
+
+Bootstrap RabbitMQ topology:
+
+```powershell
+python -m scripts.bootstrap_rabbitmq
+```
 
 ## Single-store run
 
@@ -53,31 +68,50 @@ python -m scrapy list
 python -m scrapy crawl mediapark -s CLOSESPIDER_ITEMCOUNT=5
 ```
 
-## Publisher service
+## Operator UI
 
-Run the standalone outbox publisher once:
+Run the local scraper operator UI:
 
 ```powershell
-python -m scripts.bootstrap_rabbitmq
+python -m services.ui_api.main --host 127.0.0.1 --port 8765
+```
+
+Open `http://127.0.0.1:8765`.
+
+The UI covers the narrow scraper workflow: choose a store, optionally limit the run to a category/brand/category URL, set custom time and/or item limits, optionally set a custom parse interval in seconds, start a run, watch live logs, stop a run, read the short summary, and publish pending outbox rows to RabbitMQ on demand. Russian is the default UI language; Uzbek can be selected in the top bar. It intentionally does not manage outbox replay, CRM cutover, exports, or RabbitMQ queues.
+
+## Publisher service
+
+Publish one batch and exit:
+
+```powershell
 python -m services.publisher.main --once
 ```
 
-The bootstrap command works in both modes:
-
-- local Docker RabbitMQ: creates vhost, users, permissions, queues, and bindings
-- hosted shared/free RabbitMQ: skips vhost/user/permission management when the three `RABBITMQ_BOOTSTRAP_MANAGE_*` flags are set to `false`
-
-If you want containers to talk to a hosted broker instead of the local one, use:
-
-```powershell
-docker compose -f docker-compose.cloud.yml up --build
-```
-
-Run it continuously:
+Run continuously:
 
 ```powershell
 python -m services.publisher.main
 ```
+
+Replay already-saved rows back into the outbox:
+
+```powershell
+python -m scripts.replay_outbox --store mediapark --status published --limit 50
+```
+
+## Docker / VPS
+
+For the hosted deployment contour:
+
+```powershell
+docker compose -f docker-compose.cloud.yml up --build publisher
+docker compose -f docker-compose.cloud.yml run --rm scraper-job scrapy crawl mediapark
+```
+
+- `publisher` is the only always-on app service.
+- `scraper-job` is meant for host cron or manual one-shot runs.
+- `scraper-db-bootstrap` applies the Postgres schema before app services start.
 
 ## Local smoke & readiness
 
@@ -88,8 +122,6 @@ python scripts/check_readiness.py
 ```
 
 ## Optional browser-backed stores
-
-Some spiders use Playwright via per-spider `custom_settings`:
 
 ```powershell
 pip install -e ".[playwright]"
@@ -104,21 +136,23 @@ python -m pytest tests/contracts -q --tb=no
 python -m pytest tests/acceptance -q
 ```
 
+Postgres-backed tests require a DSN in `MOSCRAPER_TEST_POSTGRES_DSN`.
+
 ## Documentation index
 
 | Doc | Purpose |
 |-----|---------|
-| [docs/README.md](docs/README.md) | Full navigation index (ADRs, stores, governance). |
-| [DEV_WORKFLOW.md](DEV_WORKFLOW.md) | Fixture replay, debug summaries, gate snippets. |
+| [docs/README.md](docs/README.md) | Full navigation index. |
+| [docs/supabase_deployment.md](docs/supabase_deployment.md) | Supabase DSNs, managed RabbitMQ, cron-run scraper jobs, replay operations. |
 | [docs/onboarding.md](docs/onboarding.md) | First-day orientation and safe-change rules. |
-| [docs/crm_integration.md](docs/crm_integration.md) | Sync, batch, lifecycle, CRM-facing contract. |
+| [docs/crm_integration.md](docs/crm_integration.md) | CRM-facing contract and integration notes. |
 | [docs/support_triage.md](docs/support_triage.md) | Health, triage, runbooks, safe exports. |
 | [docs/release_process.md](docs/release_process.md) | Gates, rollout, compatibility. |
-| [docs/production_readiness.md](docs/production_readiness.md) | Readiness domains, evidence, `check_readiness.py`. |
-| [PROJECT.md](PROJECT.md) | Non-negotiable architecture and boundaries. |
+| [docs/production_readiness.md](docs/production_readiness.md) | Readiness domains and evidence. |
+| [PROJECT.md](PROJECT.md) | Core architecture boundaries. |
 
 ## Delivery boundary
 
-- **Required boundary:** RabbitMQ. The scraper side owns data until it is durably stored in scraper DB and successfully published from outbox to RabbitMQ.
-- **Broker posture:** management UI binds locally, AMQP binds on LAN, topology is bootstrapped idempotently, and publisher credentials are publish-only.
-- **Not in scope for this service:** CRM writes, deep canonical matching, multi-store merge, or final downstream normalization.
+- Required boundary: RabbitMQ.
+- The scraper side owns data until it is durably stored in the scraper DB and successfully published from outbox to RabbitMQ.
+- Not in scope for this service: CRM writes, deep canonical matching, multi-store merge, or final downstream normalization.

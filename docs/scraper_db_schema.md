@@ -2,11 +2,11 @@
 
 ## Scope
 
-This document describes the stage-2 scraper-side persistence layer for `doxx`.
+This document describes the active scraper-side persistence layer for `doxx`.
 
 Runtime flow:
 
-`Store Spider -> minimal structured item -> Scraper DB -> publication_outbox`
+`Store Spider -> minimal structured item -> Supabase-backed Scraper DB -> publication_outbox`
 
 This stage deliberately excludes:
 

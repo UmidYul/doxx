@@ -5,6 +5,7 @@ Entry point for the active Moscraper ingestion architecture: store scraping, scr
 ## Quick start
 
 - [`onboarding.md`](onboarding.md) - first day setup and active runtime boundaries
+- [`supabase_deployment.md`](supabase_deployment.md) - Supabase DSNs, managed RabbitMQ, cron-run scraper jobs, replay
 - [`../DEV_WORKFLOW.md`](../DEV_WORKFLOW.md) - concrete commands, fixture checks, smoke runs
 
 ## Architecture
@@ -14,6 +15,7 @@ Entry point for the active Moscraper ingestion architecture: store scraping, scr
 - [`final_ingestion_flow.md`](final_ingestion_flow.md) - final stage-6 runtime boundary and disabled legacy paths
 - [`publisher_service.md`](publisher_service.md) - standalone publisher service
 - [`scraper_db_schema.md`](scraper_db_schema.md) - scraper DB and outbox schema
+- [`supabase_deployment.md`](supabase_deployment.md) - deployment bootstrap and cron-driven runtime
 - [`../PROJECT.md`](../PROJECT.md) - broader project context and boundaries
 - [`../ARCHITECTURE_MAP.md`](../ARCHITECTURE_MAP.md) - module map, if present
 - [`adr/README.md`](adr/README.md) - ADR index

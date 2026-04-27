@@ -8,6 +8,8 @@ This directory contains the target relational schema for the scraper-side databa
   Current schema snapshot for the scraper-side SQLite database.
 - `migrations/0001_scraper_persistence_foundation.sql`
   First durable migration for the stage-2 scraper persistence and outbox foundation.
+- `migrations/0002_scraper_postgres_foundation.sql`
+  Postgres/Supabase foundation for the active `scraper` schema, outbox tables, and replay SQL function.
 
 ## Notes
 

@@ -4,7 +4,7 @@
 
 **Moscraper** is now a scraper-side ingestion system with a durable boundary:
 
-`store spider -> scraper DB -> outbox -> publisher service -> RabbitMQ`
+`store spider -> Supabase-backed scraper DB -> outbox -> publisher service -> RabbitMQ`
 
 The scraper owns extraction quality, minimal structuring, and durable persistence. It does not own CRM writes, deep normalization, or cross-store merge logic.
 
@@ -12,7 +12,8 @@ The scraper owns extraction quality, minimal structuring, and durable persistenc
 
 - Create a venv and install `pip install -e ".[dev]"`.
 - Copy [`.env.example`](../.env.example) to `.env`.
-- Set `SCRAPER_DB_PATH`, `RABBITMQ_URL`, `RABBITMQ_ADMIN_USER`, `RABBITMQ_ADMIN_PASS`, `RABBITMQ_PUBLISHER_USER`, `RABBITMQ_PUBLISHER_PASS`, `RABBITMQ_CRM_USER`, and `RABBITMQ_CRM_PASS`.
+- Set `SCRAPER_DB_BACKEND=postgres`, `SCRAPER_DB_DSN`, `SCRAPER_DB_MIGRATION_DSN`, `RABBITMQ_URL`, `RABBITMQ_MANAGEMENT_URL`, `RABBITMQ_CRM_USER`, and `RABBITMQ_CRM_PASS`.
+- Run `python -m scripts.bootstrap_scraper_db` before the first scraper or publisher start in a fresh environment.
 - Run `python -m scripts.bootstrap_rabbitmq` before the first publisher or CRM smoke run.
 - Keep `TRANSPORT_TYPE=disabled` unless you are explicitly working on legacy CRM-only modules.
 
@@ -49,7 +50,7 @@ python -m services.publisher.main
 | Spiders | `infrastructure/spiders/` |
 | Validate | `infrastructure/pipelines/validate_pipeline.py` |
 | Persistence pipeline | `infrastructure/pipelines/scraper_storage_pipeline.py` |
-| Scraper DB | `infrastructure/persistence/sqlite_store.py` |
+| Scraper DB | `infrastructure/persistence/postgres_store.py` (`sqlite_store.py` remains as legacy/local fallback) |
 | Publisher service | `services/publisher/` |
 | Contracts | `shared/contracts/` |
 | Observability | `infrastructure/observability/` |

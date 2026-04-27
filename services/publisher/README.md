@@ -48,6 +48,7 @@ High-signal message codes:
 
 Fast broker validation:
 
+- `python -m scripts.bootstrap_scraper_db`
 - `python -m scripts.bootstrap_rabbitmq`
 - `python -m scripts.rabbit_smoke`
 - `python -m services.publisher.main --once`
