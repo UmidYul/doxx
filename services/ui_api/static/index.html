@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Moscraper UI</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">M</div>
+          <div>
+            <div class="brand-title">Moscraper</div>
+            <div class="brand-subtitle" data-i18n="brand.subtitle">Панель оператора</div>
+          </div>
+        </div>
+        <nav class="nav">
+          <button class="nav-item active" data-page="runs" data-i18n="nav.runs">Запуски</button>
+          <button class="nav-item" data-page="diagnostics" data-i18n="nav.diagnostics">Диагностика</button>
+        </nav>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div class="status-strip">
+            <span class="status-item"><span id="dbDot" class="dot muted"></span>DB: <span id="dbStatus">...</span></span>
+            <span class="status-item"><span id="rabbitDot" class="dot muted"></span>RabbitMQ: <span id="rabbitStatus">...</span></span>
+            <span class="status-item">Python: <span id="pythonStatus">...</span></span>
+          </div>
+          <div class="topbar-actions">
+            <label class="language-field">
+              <span data-i18n="topbar.language">Язык</span>
+              <select id="languageSelect">
+                <option value="ru">Русский</option>
+                <option value="uz">O'zbekcha</option>
+              </select>
+            </label>
+            <button id="refreshBtn" class="icon-button" data-tip-key="tooltip.refresh" data-tip="Обновить данные" data-i18n="button.refresh">Обновить</button>
+          </div>
+        </header>
+
+        <section id="runsPage" class="page">
+          <section id="runsListView" class="view stack">
+            <section class="panel">
+              <div class="panel-header">
+                <h2 data-i18n="runs.newRun">Новый запуск</h2>
+              </div>
+              <form id="runForm" class="run-form">
+                <label class="field">
+                  <span data-i18n="field.store">Магазин</span>
+                  <select id="storeSelect"></select>
+                </label>
+
+                <label class="field">
+                  <span><span data-i18n="field.category">Категория</span> <button type="button" class="help" data-tip-key="tooltip.category" data-tip="Ограничивает стартовые категории магазина. Если оставить пустым, парсер использует стандартные категории магазина.">?</button></span>
+                  <select id="categorySelect"></select>
+                </label>
+
+                <label class="field">
+                  <span><span data-i18n="field.brand">Бренд</span> <button type="button" class="help" data-tip-key="tooltip.brand" data-tip="Фильтрует товары по бренду перед сохранением. Например: Apple или iPhone.">?</button></span>
+                  <input id="brandInput" type="text" list="brandOptions" autocomplete="off" />
+                  <datalist id="brandOptions"></datalist>
+                </label>
+
+                <label class="field field-wide">
+                  <span><span data-i18n="field.categoryUrl">URL категории</span> <button type="button" class="help" data-tip-key="tooltip.categoryUrl" data-tip="Точный URL категории магазина. Если указан, он заменяет стандартные стартовые категории.">?</button></span>
+                  <input id="categoryUrl" type="url" inputmode="url" />
+                </label>
+
+                <label class="field">
+                  <span><span data-i18n="field.timeLimit">Лимит времени, минут</span> <button type="button" class="help" data-tip-key="tooltip.timeLimit" data-tip="Скрапер остановится по достижении лимита. Оставьте пустым, если лимит не нужен.">?</button></span>
+                  <input id="timeLimit" type="number" min="1" step="1" inputmode="numeric" />
+                </label>
+
+                <label class="field">
+                  <span><span data-i18n="field.itemLimit">Лимит товаров</span> <button type="button" class="help" data-tip-key="tooltip.itemLimit" data-tip="Максимальное число спарсенных товаров. Оставьте пустым, если лимит не нужен.">?</button></span>
+                  <input id="itemLimit" type="number" min="1" step="1" inputmode="numeric" />
+                </label>
+
+                <label class="field">
+                  <span><span data-i18n="field.parseInterval">Интервал, секунд</span> <button type="button" class="help" data-tip-key="tooltip.parseInterval" data-tip="Пауза между запросами Scrapy. Например, 3 означает примерно один запрос раз в 3 секунды. Оставьте пустым, если интервал не нужен.">?</button></span>
+                  <input id="parseInterval" type="number" min="0.1" step="0.1" inputmode="decimal" />
+                </label>
+
+                <label class="check-field">
+                  <input id="runUntilStopped" type="checkbox" />
+                  <span data-i18n="field.runUntilStopped">Работать до ручной остановки</span>
+                </label>
+
+                <div class="form-actions">
+                  <button class="primary" type="submit" data-i18n="button.startRun">Запустить</button>
+                  <button id="resetFormBtn" class="secondary" type="button" data-i18n="button.reset">Сбросить</button>
+                </div>
+              </form>
+              <div id="formNotice" class="notice hidden"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header">
+                <h2 data-i18n="runs.recent">Активные / последние запуски</h2>
+                <span id="runsCount" class="muted-text">0 всего</span>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th data-i18n="table.status">Статус</th>
+                      <th data-i18n="table.store">Магазин</th>
+                      <th data-i18n="table.started">Дата и время</th>
+                      <th data-i18n="table.duration">Длительность</th>
+                      <th data-i18n="table.items">Товары</th>
+                    </tr>
+                  </thead>
+                  <tbody id="runsTable"></tbody>
+                </table>
+              </div>
+            </section>
+          </section>
+
+          <section id="runDetailView" class="view stack hidden">
+            <div class="detail-header">
+              <div>
+                <button id="backToRunsBtn" class="link-button" type="button" data-i18n="button.backToRuns">Назад к запускам</button>
+                <h1 id="detailTitle">Run</h1>
+              </div>
+              <div class="detail-actions">
+                <button id="stopRunBtn" class="danger hidden" type="button" data-i18n="button.stop">Остановить</button>
+                <button id="rerunBtn" class="secondary" type="button" data-i18n="button.rerun">Повторить</button>
+              </div>
+            </div>
+
+            <section class="kpi-grid">
+              <div class="kpi"><span data-i18n="kpi.elapsed">Прошло</span><strong id="kpiElapsed">0с</strong></div>
+              <div class="kpi"><span data-i18n="kpi.itemsScraped">Спарсено товаров</span><strong id="kpiItems">0</strong></div>
+              <div class="kpi"><span data-i18n="kpi.persisted">Сохранено</span><strong id="kpiPersisted">0</strong></div>
+              <div class="kpi"><span data-i18n="kpi.pagesVisited">Страниц</span><strong id="kpiPages">0</strong></div>
+              <div class="kpi"><span data-i18n="kpi.errors">Ошибки</span><strong id="kpiErrors">0</strong></div>
+              <div class="kpi"><span data-i18n="kpi.warnings">Предупреждения</span><strong id="kpiWarnings">0</strong></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header">
+                <h2 data-i18n="summary.title">Отчет</h2>
+                <span id="limitLabel" class="muted-text"></span>
+              </div>
+              <div id="summaryPanel" class="summary-grid"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2 data-i18n="publication.title">Публикация</h2>
+                  <div class="panel-subtitle" data-i18n="publication.subtitle">CRM увидит товары только после публикации в RabbitMQ.</div>
+                </div>
+                <div class="publication-actions">
+                  <button id="refreshPublicationBtn" class="secondary" type="button" data-i18n="button.refresh">Обновить</button>
+                  <button id="publishPendingBtn" class="primary" type="button" data-i18n="button.publishPending">Опубликовать pending</button>
+                </div>
+              </div>
+              <div id="publicationPanel" class="summary-grid"></div>
+              <div id="publicationNotice" class="notice hidden"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header log-header">
+                <h2 data-i18n="log.title">Лог в реальном времени</h2>
+                <div class="log-controls">
+                  <div class="segmented" id="levelFilter">
+                    <button class="active" data-level="ALL">ALL</button>
+                    <button data-level="INFO">INFO</button>
+                    <button data-level="WARN">WARN</button>
+                    <button data-level="ERROR">ERROR</button>
+                  </div>
+                  <input id="logSearch" class="search-input" placeholder="Поиск по логу" data-i18n-placeholder="log.search" />
+                  <label class="auto-scroll"><input id="autoScroll" type="checkbox" checked /> <span data-i18n="log.autoScroll">Автопрокрутка</span></label>
+                </div>
+              </div>
+              <pre id="logOutput" class="log-output"></pre>
+            </section>
+          </section>
+        </section>
+
+        <section id="diagnosticsPage" class="page hidden">
+          <section class="panel diagnostics-panel">
+            <div class="panel-header">
+              <h2 data-i18n="diagnostics.title">Диагностика</h2>
+              <button id="refreshDiagnosticsBtn" class="secondary" type="button" data-i18n="button.refreshDiagnostics">Обновить диагностику</button>
+            </div>
+            <table>
+              <tbody id="diagnosticsTable"></tbody>
+            </table>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
