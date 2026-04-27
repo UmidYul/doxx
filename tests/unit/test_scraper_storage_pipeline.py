@@ -4,8 +4,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from config.settings import settings
-from infrastructure.pipelines.scraper_storage_pipeline import ScraperStoragePipeline
 from infrastructure.persistence.sqlite_store import SQLiteScraperStore
+from infrastructure.pipelines.scraper_storage_pipeline import ScraperStoragePipeline
 
 
 class _FakeStats:
@@ -34,7 +34,9 @@ class _FakeSpider:
 def test_scraper_pipeline_persists_item_and_finishes_run(tmp_path: Path) -> None:
     db_path = tmp_path / "scraper.db"
     original_db_path = settings.SCRAPER_DB_PATH
+    original_backend = settings.SCRAPER_DB_BACKEND
     settings.SCRAPER_DB_PATH = str(db_path)
+    settings.SCRAPER_DB_BACKEND = "sqlite"
     try:
         spider = _FakeSpider()
         pipeline = ScraperStoragePipeline()
@@ -76,3 +78,4 @@ def test_scraper_pipeline_persists_item_and_finishes_run(tmp_path: Path) -> None
         assert outbox_row["status"] == "pending"
     finally:
         settings.SCRAPER_DB_PATH = original_db_path
+        settings.SCRAPER_DB_BACKEND = original_backend

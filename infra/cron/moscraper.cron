@@ -1,0 +1,4 @@
+0 0 * * * cd /srv/moscraper && docker compose -f docker-compose.cloud.yml run --rm scraper-job scrapy crawl mediapark
+20 0 * * * cd /srv/moscraper && docker compose -f docker-compose.cloud.yml run --rm scraper-job scrapy crawl texnomart
+40 0 * * * cd /srv/moscraper && docker compose -f docker-compose.cloud.yml run --rm scraper-job scrapy crawl uzum
+0 1 * * * cd /srv/moscraper && docker compose -f docker-compose.cloud.yml run --rm scraper-job scrapy crawl alifshop

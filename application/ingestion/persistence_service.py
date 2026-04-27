@@ -3,8 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from config.settings import settings
 from domain.scraped_product import ScrapedProductSnapshot
-from infrastructure.persistence.sqlite_store import PersistedRawProduct, SQLiteScraperStore
+from infrastructure.persistence.base import PersistedRawProduct, ScraperStore
+from infrastructure.persistence.factory import build_scraper_store
 
 
 @dataclass(slots=True)
@@ -18,11 +20,15 @@ class PersistedScrapyItem:
 
 
 class ScraperPersistenceService:
-    def __init__(self, *, store: SQLiteScraperStore | None = None) -> None:
-        self._store = store or SQLiteScraperStore.from_settings()
+    def __init__(self, *, store: ScraperStore | None = None) -> None:
+        self._store = store or build_scraper_store(
+            backend=settings.resolved_scraper_db_backend(),
+            sqlite_path=settings.SCRAPER_DB_PATH,
+            postgres_dsn=settings.SCRAPER_DB_DSN,
+        )
 
     @property
-    def store(self) -> SQLiteScraperStore:
+    def store(self) -> ScraperStore:
         return self._store
 
     def start_run(

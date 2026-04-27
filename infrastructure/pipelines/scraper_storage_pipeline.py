@@ -5,14 +5,15 @@ import logging
 from application.ingestion.persistence_service import ScraperPersistenceService
 from config.settings import settings
 from infrastructure.observability.correlation import build_run_id
-from infrastructure.persistence.sqlite_store import SQLiteScraperStore
+from infrastructure.persistence.base import ScraperStore
+from infrastructure.persistence.factory import build_scraper_store
 
 logger = logging.getLogger(__name__)
 
 
 class ScraperStoragePipeline:
     def __init__(self) -> None:
-        self._store: SQLiteScraperStore | None = None
+        self._store: ScraperStore | None = None
         self._service: ScraperPersistenceService | None = None
         self._scrape_run_id: str | None = None
         self._items_persisted: int = 0
@@ -26,7 +27,11 @@ class ScraperStoragePipeline:
         return cls()
 
     def open_spider(self, spider) -> None:
-        self._store = SQLiteScraperStore.from_settings()
+        self._store = build_scraper_store(
+            backend=settings.resolved_scraper_db_backend(),
+            sqlite_path=settings.SCRAPER_DB_PATH,
+            postgres_dsn=settings.SCRAPER_DB_DSN,
+        )
         self._service = ScraperPersistenceService(store=self._store)
         run_id = getattr(spider, "_scrape_run_id", None) or getattr(spider, "_parser_run_id", None) or build_run_id(spider.name)
         spider._scrape_run_id = run_id

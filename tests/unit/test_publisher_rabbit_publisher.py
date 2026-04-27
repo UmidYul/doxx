@@ -30,6 +30,8 @@ def _config(*, declare_topology: bool) -> PublisherServiceConfig:
         retry_base_seconds=15,
         poll_interval_seconds=0.1,
         publisher_service_name="publisher-test",
+        scraper_db_backend="sqlite",
+        scraper_db_dsn="",
         scraper_db_path="data/scraper/scraper.db",
     )
 

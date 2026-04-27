@@ -134,9 +134,14 @@ class Settings(BaseSettings):
     MAX_PUBLISH_RETRIES: int = Field(default=0, ge=0)
 
     # --- Scraper DB / outbox / publisher ---
+    SCRAPER_DB_BACKEND: str = ""
+    SCRAPER_DB_DSN: str = ""
+    SCRAPER_DB_MIGRATION_DSN: str = ""
     SCRAPER_DB_PATH: str = "data/scraper/scraper.db"
     SCRAPER_DB_BUSY_TIMEOUT_MS: int = Field(default=5000, ge=100, le=600_000)
     SCRAPER_DB_ENABLE_WAL: bool = True
+    SCRAPER_DB_POOL_MIN_SIZE: int = Field(default=1, ge=1, le=50)
+    SCRAPER_DB_POOL_MAX_SIZE: int = Field(default=5, ge=1, le=100)
     SCRAPER_OUTBOX_EVENT_TYPE: str = "scraper.product.scraped.v1"
     SCRAPER_OUTBOX_BATCH_SIZE: int = Field(default=50, ge=1, le=500)
     SCRAPER_OUTBOX_LEASE_SECONDS: int = Field(default=60, ge=5, le=3600)
@@ -469,6 +474,14 @@ class Settings(BaseSettings):
             username=self.RABBITMQ_CRM_USER,
             password=self.RABBITMQ_CRM_PASS,
         )
+
+    def resolved_scraper_db_backend(self) -> str:
+        configured = (self.SCRAPER_DB_BACKEND or "").strip().lower()
+        if configured:
+            return configured
+        if self.SCRAPER_DB_DSN:
+            return "postgres"
+        return "sqlite"
 
 
 settings = Settings()

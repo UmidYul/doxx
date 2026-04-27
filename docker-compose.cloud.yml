@@ -1,5 +1,4 @@
-# Hosted broker contour: scraper/publisher use an external RabbitMQ instance
-# such as CloudAMQP. No local broker container is started here.
+# Hosted broker + hosted Postgres contour. Publisher is long-lived; scraper jobs are invoked manually or by host cron.
 
 services:
   rabbitmq-bootstrap:
@@ -34,14 +33,28 @@ services:
     command: ["python", "-m", "scripts.bootstrap_rabbitmq"]
     restart: "no"
 
-  scraper:
+  scraper-db-bootstrap:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: moscraper-scraper-cloud
+    container_name: moscraper-scraper-db-bootstrap-cloud
+    environment:
+      SCRAPER_DB_MIGRATION_DSN: ${SCRAPER_DB_MIGRATION_DSN}
+      SCRAPER_DB_DSN: ${SCRAPER_DB_DSN}
+    command: ["python", "-m", "scripts.bootstrap_scraper_db"]
+    restart: "no"
+
+  scraper-job:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: moscraper-scraper-job-cloud
     depends_on:
       rabbitmq-bootstrap:
         condition: service_completed_successfully
+      scraper-db-bootstrap:
+        condition: service_completed_successfully
+    profiles: ["manual"]
     environment:
       BROKER_TYPE: rabbitmq
       RABBITMQ_URL: ${RABBITMQ_URL}
@@ -54,10 +67,10 @@ services:
       RABBITMQ_DECLARE_TOPOLOGY: "false"
       RABBITMQ_HEARTBEAT_SECONDS: ${RABBITMQ_HEARTBEAT_SECONDS:-30}
       RABBITMQ_CONNECTION_NAME: scraper-runtime
-      SCRAPER_DB_PATH: /data/scraper/scraper.db
-    volumes:
-      - scraper-data:/data/scraper
-    command: ["scrapy", "crawl", "mediapark"]
+      SCRAPER_DB_BACKEND: ${SCRAPER_DB_BACKEND:-postgres}
+      SCRAPER_DB_DSN: ${SCRAPER_DB_DSN}
+      SCRAPER_DB_MIGRATION_DSN: ${SCRAPER_DB_MIGRATION_DSN}
+    command: ["scrapy", "list"]
 
   publisher:
     build:
@@ -66,6 +79,8 @@ services:
     container_name: moscraper-publisher-cloud
     depends_on:
       rabbitmq-bootstrap:
+        condition: service_completed_successfully
+      scraper-db-bootstrap:
         condition: service_completed_successfully
     environment:
       RABBITMQ_URL: ${RABBITMQ_URL}
@@ -78,11 +93,9 @@ services:
       RABBITMQ_DECLARE_TOPOLOGY: "false"
       RABBITMQ_HEARTBEAT_SECONDS: ${RABBITMQ_HEARTBEAT_SECONDS:-30}
       RABBITMQ_CONNECTION_NAME: ${RABBITMQ_CONNECTION_NAME:-publisher-service}
-      SCRAPER_DB_PATH: /data/scraper/scraper.db
+      SCRAPER_DB_BACKEND: ${SCRAPER_DB_BACKEND:-postgres}
+      SCRAPER_DB_DSN: ${SCRAPER_DB_DSN}
+      SCRAPER_DB_MIGRATION_DSN: ${SCRAPER_DB_MIGRATION_DSN}
       PUBLISHER_POLL_INTERVAL_SECONDS: "2.0"
-    volumes:
-      - scraper-data:/data/scraper
     command: ["python", "-m", "services.publisher.main"]
-
-volumes:
-  scraper-data:
+    restart: unless-stopped

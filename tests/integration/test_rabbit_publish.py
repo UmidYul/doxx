@@ -74,6 +74,7 @@ def test_mediapark_crawl_outbox_then_publish_to_bound_queue(tmp_path: Path) -> N
     env["RABBITMQ_ROUTING_KEY"] = routing_key
     env["RABBITMQ_PUBLISH_MANDATORY"] = "true"
     env["RABBITMQ_DECLARE_TOPOLOGY"] = "false"
+    env["SCRAPER_DB_BACKEND"] = "sqlite"
     env["SCRAPER_DB_PATH"] = str(db_path)
 
     crawl = subprocess.run(

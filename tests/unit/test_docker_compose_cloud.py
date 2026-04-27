@@ -6,10 +6,11 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 CLOUD_COMPOSE = REPO_ROOT / "docker-compose.cloud.yml"
 
 
-def test_cloud_compose_uses_external_rabbitmq_and_keeps_bootstrap_least_privileged():
+def test_cloud_compose_uses_external_rabbitmq_and_postgres_bootstrap():
     text = CLOUD_COMPOSE.read_text(encoding="utf-8")
     assert "moscraper-rabbitmq-bootstrap-cloud" in text
-    assert "container_name: moscraper-scraper-cloud" in text
+    assert "container_name: moscraper-scraper-db-bootstrap-cloud" in text
+    assert "container_name: moscraper-scraper-job-cloud" in text
     assert "container_name: moscraper-publisher-cloud" in text
     assert "  rabbitmq:" not in text
     assert "RABBITMQ_URL: ${RABBITMQ_URL}" in text
@@ -18,3 +19,5 @@ def test_cloud_compose_uses_external_rabbitmq_and_keeps_bootstrap_least_privileg
     assert "RABBITMQ_BOOTSTRAP_MANAGE_USERS: ${RABBITMQ_BOOTSTRAP_MANAGE_USERS:-false}" in text
     assert "RABBITMQ_BOOTSTRAP_MANAGE_PERMISSIONS: ${RABBITMQ_BOOTSTRAP_MANAGE_PERMISSIONS:-false}" in text
     assert 'RABBITMQ_DECLARE_TOPOLOGY: "false"' in text
+    assert 'command: ["python", "-m", "scripts.bootstrap_scraper_db"]' in text
+    assert "SCRAPER_DB_DSN: ${SCRAPER_DB_DSN}" in text

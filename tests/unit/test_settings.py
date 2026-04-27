@@ -45,10 +45,12 @@ def test_settings_instantiates_with_env_example_pairs(monkeypatch: pytest.Monkey
     assert s.BROKER_TYPE == "rabbitmq"
     assert s.RABBITMQ_VHOST == "moscraper"
     assert s.RABBITMQ_DECLARE_TOPOLOGY is False
-    assert s.RABBITMQ_BOOTSTRAP_MANAGE_VHOST is True
-    assert s.RABBITMQ_BOOTSTRAP_MANAGE_USERS is True
-    assert s.RABBITMQ_BOOTSTRAP_MANAGE_PERMISSIONS is True
+    assert s.RABBITMQ_BOOTSTRAP_MANAGE_VHOST is False
+    assert s.RABBITMQ_BOOTSTRAP_MANAGE_USERS is False
+    assert s.RABBITMQ_BOOTSTRAP_MANAGE_PERMISSIONS is False
     assert s.MAX_PUBLISH_RETRIES == 0
+    assert s.SCRAPER_DB_BACKEND == "postgres"
+    assert s.resolved_scraper_db_backend() == "postgres"
     assert s.TRANSPORT_TYPE == "disabled"
     assert s.CRM_SYNC_ENDPOINT == "/api/parser/sync"
     assert s.CRM_BATCH_SIZE == 50

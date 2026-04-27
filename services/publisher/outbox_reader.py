@@ -1,23 +1,27 @@
 from __future__ import annotations
 
 from domain.publication_event import ScraperProductEvent
-from infrastructure.persistence.sqlite_store import ClaimedOutboxMessage, SQLiteScraperStore
-
+from infrastructure.persistence.base import ClaimedOutboxMessage, ScraperStore
+from infrastructure.persistence.factory import build_scraper_store
 from services.publisher.config import PublisherServiceConfig
 
 
-class SQLiteOutboxReader:
+class PersistenceOutboxReader:
     def __init__(
         self,
         *,
-        store: SQLiteScraperStore | None = None,
+        store: ScraperStore | None = None,
         config: PublisherServiceConfig | None = None,
     ) -> None:
         self._config = config or PublisherServiceConfig.from_settings()
-        self._store = store or SQLiteScraperStore(self._config.scraper_db_path)
+        self._store = store or build_scraper_store(
+            backend=self._config.scraper_db_backend,
+            sqlite_path=self._config.scraper_db_path,
+            postgres_dsn=self._config.scraper_db_dsn,
+        )
 
     @property
-    def store(self) -> SQLiteScraperStore:
+    def store(self) -> ScraperStore:
         return self._store
 
     def has_claimable_messages(self) -> bool:
@@ -54,3 +58,7 @@ class SQLiteOutboxReader:
 
     def close(self) -> None:
         self._store.close()
+
+
+class SQLiteOutboxReader(PersistenceOutboxReader):
+    """Backward-compatible alias for the generic persistence reader."""

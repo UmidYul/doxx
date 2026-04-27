@@ -126,6 +126,8 @@ async def _run_scraper_db_and_publisher_smoke() -> dict[str, object]:
             retry_base_seconds=settings.SCRAPER_OUTBOX_RETRY_BASE_SECONDS,
             poll_interval_seconds=settings.PUBLISHER_POLL_INTERVAL_SECONDS,
             publisher_service_name="local-smoke-publisher",
+            scraper_db_backend="sqlite",
+            scraper_db_dsn="",
             scraper_db_path=str(db_path),
         )
         publisher = _SmokeRabbitPublisher()

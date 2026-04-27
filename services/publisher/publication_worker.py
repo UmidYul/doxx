@@ -6,11 +6,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from domain.publication_event import ScraperProductEvent
-from infrastructure.persistence.sqlite_store import ClaimedOutboxMessage
 from infrastructure.observability import message_codes as obs_mc
 from infrastructure.observability.event_logger import log_publisher_event
+from infrastructure.persistence.base import ClaimedOutboxMessage
 from services.publisher.config import PublisherServiceConfig
-from services.publisher.outbox_reader import SQLiteOutboxReader
+from services.publisher.outbox_reader import PersistenceOutboxReader
 from services.publisher.rabbit_publisher import RabbitMQPublisher
 
 logger = logging.getLogger(__name__)
@@ -28,11 +28,11 @@ class PublicationWorker:
         self,
         *,
         config: PublisherServiceConfig | None = None,
-        outbox_reader: SQLiteOutboxReader | None = None,
+        outbox_reader: PersistenceOutboxReader | None = None,
         rabbit_publisher: RabbitMQPublisher | None = None,
     ) -> None:
         self._config = config or PublisherServiceConfig.from_settings()
-        self._outbox_reader = outbox_reader or SQLiteOutboxReader(config=self._config)
+        self._outbox_reader = outbox_reader or PersistenceOutboxReader(config=self._config)
         self._rabbit_publisher = rabbit_publisher or RabbitMQPublisher(config=self._config)
 
     def _build_delivery_event(

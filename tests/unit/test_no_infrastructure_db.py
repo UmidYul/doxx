@@ -8,8 +8,6 @@ CODE_ROOTS = ("application", "config", "domain", "infrastructure")
 
 _PYPROJECT_FORBIDDEN = (
     "supabase",
-    "psycopg2",
-    "psycopg",
     "asyncpg",
     "sqlalchemy",
     "alembic",

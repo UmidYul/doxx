@@ -62,6 +62,8 @@ def _config(tmp_path: Path, *, publisher_name: str = "publisher-test") -> Publis
         retry_base_seconds=15,
         poll_interval_seconds=0.1,
         publisher_service_name=publisher_name,
+        scraper_db_backend="sqlite",
+        scraper_db_dsn="",
         scraper_db_path=str(tmp_path / "scraper.db"),
     )
 

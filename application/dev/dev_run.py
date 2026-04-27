@@ -3,9 +3,8 @@ from __future__ import annotations
 import shlex
 import sys
 
-from domain.developer_experience import DevCommandDescriptor, DevRunMode
-
 from config.settings import settings
+from domain.developer_experience import DevCommandDescriptor, DevRunMode
 
 
 def explain_dev_run_modes() -> str:
@@ -39,6 +38,7 @@ def resolve_single_store_target(
             "DEV_MODE": "true",
             "DEV_RUN_MODE": "normal",
             "TRANSPORT_TYPE": "disabled",
+            "SCRAPER_DB_BACKEND": "sqlite",
             "SCRAPER_DB_PATH": f"data/scraper/{spider or 'store'}.dev.db",
         },
         "notes": (

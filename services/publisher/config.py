@@ -21,6 +21,8 @@ class PublisherServiceConfig(BaseModel):
     retry_base_seconds: int = Field(ge=1)
     poll_interval_seconds: float = Field(ge=0.1)
     publisher_service_name: str
+    scraper_db_backend: str
+    scraper_db_dsn: str = ""
     scraper_db_path: str
 
     @classmethod
@@ -41,5 +43,7 @@ class PublisherServiceConfig(BaseModel):
             retry_base_seconds=settings.SCRAPER_OUTBOX_RETRY_BASE_SECONDS,
             poll_interval_seconds=settings.PUBLISHER_POLL_INTERVAL_SECONDS,
             publisher_service_name=settings.PUBLISHER_SERVICE_NAME,
+            scraper_db_backend=settings.resolved_scraper_db_backend(),
+            scraper_db_dsn=settings.SCRAPER_DB_DSN,
             scraper_db_path=settings.SCRAPER_DB_PATH,
         )

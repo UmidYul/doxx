@@ -1,5 +1,5 @@
-# Local active contour: scraper -> scraper DB -> outbox -> publisher -> RabbitMQ -> CRM queue.
-# Usage: docker compose up --build
+# Local broker + external Postgres contour: scraper-job -> Supabase-backed scraper DB -> outbox -> publisher -> RabbitMQ -> CRM queue.
+# Usage: docker compose up --build publisher
 # RabbitMQ UI: http://127.0.0.1:15672 (credentials from .env: RABBITMQ_ADMIN_USER / RABBITMQ_ADMIN_PASS)
 
 services:
@@ -57,14 +57,28 @@ services:
     command: ["python", "-m", "scripts.bootstrap_rabbitmq"]
     restart: "no"
 
-  scraper:
+  scraper-db-bootstrap:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: moscraper-scraper
+    container_name: moscraper-scraper-db-bootstrap
+    environment:
+      SCRAPER_DB_MIGRATION_DSN: ${SCRAPER_DB_MIGRATION_DSN}
+      SCRAPER_DB_DSN: ${SCRAPER_DB_DSN}
+    command: ["python", "-m", "scripts.bootstrap_scraper_db"]
+    restart: "no"
+
+  scraper-job:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: moscraper-scraper-job
     depends_on:
       rabbitmq-bootstrap:
         condition: service_completed_successfully
+      scraper-db-bootstrap:
+        condition: service_completed_successfully
+    profiles: ["manual"]
     environment:
       BROKER_TYPE: rabbitmq
       RABBITMQ_URL: ${RABBITMQ_DOCKER_URL:-amqp://moscraper_publisher:change-me-publisher-pass@rabbitmq:5672/moscraper}
@@ -77,10 +91,10 @@ services:
       RABBITMQ_DECLARE_TOPOLOGY: "false"
       RABBITMQ_HEARTBEAT_SECONDS: ${RABBITMQ_HEARTBEAT_SECONDS:-30}
       RABBITMQ_CONNECTION_NAME: scraper-runtime
-      SCRAPER_DB_PATH: /data/scraper/scraper.db
-    volumes:
-      - scraper-data:/data/scraper
-    command: ["scrapy", "crawl", "mediapark"]
+      SCRAPER_DB_BACKEND: ${SCRAPER_DB_BACKEND:-postgres}
+      SCRAPER_DB_DSN: ${SCRAPER_DB_DSN}
+      SCRAPER_DB_MIGRATION_DSN: ${SCRAPER_DB_MIGRATION_DSN}
+    command: ["scrapy", "list"]
 
   publisher:
     build:
@@ -89,6 +103,8 @@ services:
     container_name: moscraper-publisher
     depends_on:
       rabbitmq-bootstrap:
+        condition: service_completed_successfully
+      scraper-db-bootstrap:
         condition: service_completed_successfully
     environment:
       RABBITMQ_URL: ${RABBITMQ_DOCKER_URL:-amqp://moscraper_publisher:change-me-publisher-pass@rabbitmq:5672/moscraper}
@@ -101,12 +117,12 @@ services:
       RABBITMQ_DECLARE_TOPOLOGY: "false"
       RABBITMQ_HEARTBEAT_SECONDS: ${RABBITMQ_HEARTBEAT_SECONDS:-30}
       RABBITMQ_CONNECTION_NAME: ${RABBITMQ_CONNECTION_NAME:-publisher-service}
-      SCRAPER_DB_PATH: /data/scraper/scraper.db
+      SCRAPER_DB_BACKEND: ${SCRAPER_DB_BACKEND:-postgres}
+      SCRAPER_DB_DSN: ${SCRAPER_DB_DSN}
+      SCRAPER_DB_MIGRATION_DSN: ${SCRAPER_DB_MIGRATION_DSN}
       PUBLISHER_POLL_INTERVAL_SECONDS: "2.0"
-    volumes:
-      - scraper-data:/data/scraper
     command: ["python", "-m", "services.publisher.main"]
+    restart: unless-stopped
 
 volumes:
   rabbitmq-data:
-  scraper-data:
